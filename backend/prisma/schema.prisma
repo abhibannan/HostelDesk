@@ -1,0 +1,330 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  RENTER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum HostelStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RoomStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  INACTIVE
+}
+
+enum RenterStatus {
+  ACTIVE
+  INACTIVE
+  LEFT
+}
+
+enum FeeStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  OTHER
+}
+
+enum RepairPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RepairStatus {
+  SUBMITTED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+enum NotificationType {
+  FEE_DUE
+  FEE_OVERDUE
+  PAYMENT_RECORDED
+  REPAIR_CREATED
+  REPAIR_UPDATED
+  SYSTEM
+}
+
+model User {
+  id                    String                @id @default(uuid())
+  firebaseUid           String                @unique
+  email                 String                @unique
+  firstName             String
+  lastName              String?
+  phone                 String?               @unique
+  profilePhotoUrl       String?
+  dateOfBirth           DateTime?
+  gender                String?
+  address               String?
+  city                  String?
+  state                 String?
+  pincode               String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  role                  UserRole
+  status                UserStatus            @default(ACTIVE)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  ownedHostels          Hostel[]              @relation("HostelOwner")
+  adminAssignments      HostelAdmin[]         @relation("AdminHostels")
+  adminHistory          HostelAdminHistory[]  @relation("AdminHistory")
+  renter                Renter?
+  recordedPayments      Payment[]             @relation("PaymentRecorder")
+  notifications         Notification[]
+  auditLogs             AuditLog[]             @relation("AuditActor")
+  createdFees           Fee[]                 @relation("FeeCreator")
+
+  @@index([role, status])
+}
+
+model Hostel {
+  id                String                @id @default(uuid())
+  ownerId           String
+  name              String
+  type              String?
+  description       String?
+  address           String?
+  city              String?
+  state             String?
+  pincode           String?
+  contactPhone      String?
+  contactEmail      String?
+  status            HostelStatus           @default(ACTIVE)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  owner             User                  @relation("HostelOwner", fields: [ownerId], references: [id])
+  adminAssignment   HostelAdmin?
+  adminHistory      HostelAdminHistory[]
+  rooms             Room[]
+  renters           Renter[]
+  fees              Fee[]
+  payments          Payment[]
+  repairs           RepairRequest[]
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+model HostelAdmin {
+  id          String   @id @default(uuid())
+  hostelId    String   @unique
+  adminId     String
+  assignedAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hostel      Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  admin       User     @relation("AdminHostels", fields: [adminId], references: [id])
+
+  @@index([adminId])
+}
+
+model HostelAdminHistory {
+  id          String    @id @default(uuid())
+  hostelId    String
+  adminId     String
+  assignedAt  DateTime  @default(now())
+  removedAt   DateTime?
+
+  hostel      Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  admin       User      @relation("AdminHistory", fields: [adminId], references: [id])
+
+  @@index([hostelId, assignedAt])
+  @@index([adminId, assignedAt])
+}
+
+model Room {
+  id          String      @id @default(uuid())
+  hostelId    String
+  roomNumber  String
+  floor       String?
+  capacity    Int
+  status      RoomStatus  @default(ACTIVE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  hostel      Hostel      @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  beds        Bed[]
+  renters     Renter[]
+
+  @@unique([hostelId, roomNumber])
+  @@index([hostelId, status])
+}
+
+model Bed {
+  id          String     @id @default(uuid())
+  roomId      String
+  label       String
+  status      BedStatus  @default(AVAILABLE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  room        Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  renter      Renter?
+
+  @@unique([roomId, label])
+  @@index([roomId, status])
+}
+
+model Renter {
+  id                  String        @id @default(uuid())
+  userId              String        @unique
+  hostelId            String
+  roomId              String?
+  bedId               String?       @unique
+  joiningDate         DateTime?
+  leavingDate         DateTime?
+  securityDeposit     Decimal?      @db.Decimal(12, 2)
+  occupation          String?
+  identityType        String?
+  identityNumber      String?
+  status              RenterStatus  @default(ACTIVE)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hostel              Hostel        @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+  room                Room?         @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  bed                 Bed?          @relation(fields: [bedId], references: [id], onDelete: SetNull)
+  fees                Fee[]
+  payments            Payment[]
+  repairs             RepairRequest[]
+
+  @@index([hostelId, status])
+  @@index([roomId])
+}
+
+model Fee {
+  id            String     @id @default(uuid())
+  hostelId      String
+  renterId      String
+  createdById   String
+  title         String
+  amount        Decimal    @db.Decimal(12, 2)
+  billingStart  DateTime?
+  billingEnd    DateTime?
+  dueDate       DateTime
+  status        FeeStatus  @default(PENDING)
+  notes         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  hostel        Hostel     @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+  renter        Renter     @relation(fields: [renterId], references: [id], onDelete: Restrict)
+  createdBy     User       @relation("FeeCreator", fields: [createdById], references: [id])
+  payments      Payment[]
+
+  @@index([hostelId, dueDate, status])
+  @@index([renterId, dueDate, status])
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  hostelId       String
+  renterId       String
+  feeId          String?
+  recordedById   String
+  amount         Decimal       @db.Decimal(12, 2)
+  paidAt         DateTime      @default(now())
+  method         PaymentMethod
+  reference      String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+
+  hostel         Hostel        @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+  renter         Renter        @relation(fields: [renterId], references: [id], onDelete: Restrict)
+  fee            Fee?          @relation(fields: [feeId], references: [id], onDelete: SetNull)
+  recordedBy     User          @relation("PaymentRecorder", fields: [recordedById], references: [id])
+
+  @@index([hostelId, paidAt])
+  @@index([renterId, paidAt])
+  @@index([feeId])
+}
+
+model RepairRequest {
+  id           String          @id @default(uuid())
+  hostelId     String
+  renterId     String
+  roomId       String?
+  category     String
+  title        String
+  description  String
+  priority     RepairPriority  @default(MEDIUM)
+  status       RepairStatus    @default(SUBMITTED)
+  imageUrl     String?
+  adminNotes   String?
+  resolvedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  hostel       Hostel          @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+  renter       Renter          @relation(fields: [renterId], references: [id], onDelete: Restrict)
+
+  @@index([hostelId, status, createdAt])
+  @@index([renterId, status, createdAt])
+}
+
+model Notification {
+  id          String             @id @default(uuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String
+  metadata    Json?
+  readAt      DateTime?
+  createdAt   DateTime           @default(now())
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}

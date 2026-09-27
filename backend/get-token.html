@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h3>StayNexa Firebase Login</h3>
+
+  <input id="email" placeholder="Email" />
+  <input id="password" type="password" placeholder="Password" />
+  <button id="login">Login</button>
+
+  <pre id="result"></pre>
+
+  <script type="module">
+    import { initializeApp } from
+      "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+
+    import {
+      getAuth,
+      signInWithEmailAndPassword
+    } from
+      "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAZZlhQGPf0eXNlXYdn3cHFnMzKhF7oEqk",
+      authDomain: "staynexa-17a95.firebaseapp.com",
+      projectId: "staynexa-17a95"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    document.getElementById("login").onclick = async () => {
+      try {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+
+        const credential = await signInWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+        const token = await credential.user.getIdToken();
+
+        document.getElementById("result").textContent = token;
+      } catch (error) {
+        document.getElementById("result").textContent =
+          error.message;
+      }
+    };
+  </script>
+</body>
+</html>
