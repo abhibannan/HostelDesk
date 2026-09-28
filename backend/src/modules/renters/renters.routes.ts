@@ -3,12 +3,115 @@ import { z } from "zod";
 import {
   db,
   firebaseAuth,
+  storage,
 } from "../../config/firebase.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
 import { requireHostelAccess } from "../../middleware/hostel-access.middleware.js";
 import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
+
+const DELETE_BATCH_SIZE = 400;
+
+async function deleteQueryDocuments(
+  query: FirebaseFirestore.Query,
+): Promise<void> {
+  while (true) {
+    const snapshot = await query.limit(DELETE_BATCH_SIZE).get();
+
+    if (snapshot.empty) return;
+
+    const batch = db.batch();
+
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+    }
+
+    await batch.commit();
+
+    if (snapshot.size < DELETE_BATCH_SIZE) return;
+  }
+}
+
+async function deleteRenterRelatedFiles(
+  userId: string,
+): Promise<void> {
+  const snapshot = await db
+    .collection("uploads")
+    .where("userId", "==", userId)
+    .get();
+
+  for (const doc of snapshot.docs) {
+    const storagePath = String(doc.data()?.storagePath ?? "");
+
+    if (storagePath) {
+      try {
+        await storage.file(storagePath).delete({
+          ignoreNotFound: true,
+        });
+      } catch (error) {
+        console.error(
+          `RENTER STORAGE CLEANUP FAILED (${storagePath}):`,
+          error,
+        );
+        throw error;
+      }
+    }
+  }
+
+  await deleteQueryDocuments(
+    db
+      .collection("uploads")
+      .where("userId", "==", userId),
+  );
+}
+
+async function deleteRenterAuditLogs(
+  renterId: string,
+  userId: string,
+): Promise<void> {
+  const queryResults = await Promise.all([
+    db
+      .collection("auditLogs")
+      .where("entityId", "==", renterId)
+      .get(),
+    db
+      .collection("auditLogs")
+      .where("actorId", "==", userId)
+      .get(),
+    db
+      .collection("auditLogs")
+      .where("metadata.renterId", "==", renterId)
+      .get(),
+    db
+      .collection("auditLogs")
+      .where("metadata.userId", "==", userId)
+      .get(),
+  ]);
+
+  const refs = new Map<string, FirebaseFirestore.DocumentReference>();
+
+  for (const snapshot of queryResults) {
+    for (const doc of snapshot.docs) {
+      refs.set(doc.id, doc.ref);
+    }
+  }
+
+  if (!refs.size) return;
+
+  const refList = Array.from(refs.values());
+
+  for (let index = 0; index < refList.length; index += DELETE_BATCH_SIZE) {
+    const batch = db.batch();
+    const chunk = refList.slice(index, index + DELETE_BATCH_SIZE);
+
+    for (const ref of chunk) {
+      batch.delete(ref);
+    }
+
+    await batch.commit();
+  }
+}
 
 /* ---------------------------------------------------------
    SCHEMAS
@@ -19,6 +122,7 @@ const createRenterAccountSchema = z.object({
   lastName: z.string().trim().max(100).optional(),
   email: z.string().trim().email().max(255),
   phone: z.string().trim().min(7).max(30),
+  guardianPhone: z.string().trim().min(7).max(30),
   password: z.string().min(6).max(100),
   roomId: z.string().min(1),
   joiningDate: z.string().min(1),
@@ -31,6 +135,7 @@ const createRenterAccountSchema = z.object({
 
 const renterSchema = z.object({
   userId: z.string().min(1),
+  guardianPhone: z.string().trim().min(7).max(30),
   roomId: z.string().min(1),
   joiningDate: z.string().min(1),
   monthlyFee: z.number().nonnegative(),
@@ -41,6 +146,7 @@ const renterSchema = z.object({
 });
 
 const updateRenterSchema = z.object({
+  guardianPhone: z.string().trim().min(7).max(30).optional(),
   roomId: z.string().min(1).optional(),
   monthlyFee: z.number().nonnegative().optional(),
   securityDeposit: z
@@ -95,9 +201,17 @@ router.post(
         );
 
       if (!parsed.success) {
+        const flattened = parsed.error.flatten();
+        const fieldErrors = Object.entries(flattened.fieldErrors)
+          .filter(([, messages]) => Array.isArray(messages) && messages.length > 0)
+          .map(([field, messages]) => `${field}: ${(messages as string[]).join(", ")}`)
+          .join(" | ");
+
         res.status(400).json({
-          message: "Invalid renter data",
-          errors: parsed.error.flatten(),
+          message: fieldErrors
+            ? `Invalid renter data - ${fieldErrors}`
+            : "Invalid renter data",
+          errors: flattened,
         });
         return;
       }
@@ -107,6 +221,7 @@ router.post(
         lastName,
         email,
         phone,
+        guardianPhone,
         password,
         roomId,
         joiningDate,
@@ -159,26 +274,29 @@ router.post(
 
       const roomRenters = await db
         .collection("renters")
+        .where("hostelId", "==", hostelId)
         .where("roomId", "==", roomId)
+        .where("status", "==", "ACTIVE")
+        .limit(1)
         .get();
 
-      const roomAlreadyOccupied =
-        roomRenters.docs.some((doc) => {
-          const data = doc.data();
-
-          return (
-            data.hostelId === hostelId &&
-            data.status === "ACTIVE"
-          );
-        });
-
-      if (roomAlreadyOccupied) {
+      if (!roomRenters.empty) {
         res.status(409).json({
-          message:
-            "Room already has an active renter",
+          message: "Room already has an active renter",
         });
         return;
       }
+
+      /* Validate joining date because it is also used for the first fee month */
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(joiningDate)) {
+        res.status(400).json({
+          message: "Joining date must use YYYY-MM-DD format",
+        });
+        return;
+      }
+
+      const firstFeeMonth = joiningDate.slice(0, 7);
 
       /* Check Firebase account */
 
@@ -250,11 +368,32 @@ router.post(
         userId: userRef.id,
         hostelId,
         roomId,
+        guardianPhone,
         joiningDate,
         monthlyFee,
         securityDeposit:
           securityDeposit ?? 0,
         status: "ACTIVE",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      /* Automatically create the first monthly fee for the joining month. */
+
+      const feeRef = db
+        .collection("fees")
+        .doc();
+
+      const fee = {
+        id: feeRef.id,
+        hostelId,
+        renterId: renterRef.id,
+        month: firstFeeMonth,
+        amount: monthlyFee,
+        paidAmount: 0,
+        dueDate: joiningDate,
+        description: `Monthly fee for ${firstFeeMonth}`,
+        status: "PENDING",
         createdAt: now,
         updatedAt: now,
       };
@@ -271,6 +410,11 @@ router.post(
         renter,
       );
 
+      batch.set(
+        feeRef,
+        fee,
+      );
+
       await batch.commit();
 
       await writeAuditLog({
@@ -284,12 +428,29 @@ router.post(
           userId: userRef.id,
           roomId,
           email,
+          feeId: feeRef.id,
+          feeMonth: firstFeeMonth,
+          feeAmount: monthlyFee,
+        },
+      });
+
+      await writeAuditLog({
+        actorId: req.authUser.id,
+        action: "CREATE_FEE",
+        entityType: "FEE",
+        entityId: feeRef.id,
+        metadata: {
+          hostelId,
+          renterId: renterRef.id,
+          month: firstFeeMonth,
+          amount: monthlyFee,
+          automatic: true,
         },
       });
 
       res.status(201).json({
         message:
-          "Renter account created successfully",
+          "Renter account and initial fee created successfully",
 
         renter: {
           ...renter,
@@ -301,6 +462,7 @@ router.post(
             email,
             phone,
           },
+          fee,
         },
       });
     } catch (error) {
@@ -378,6 +540,7 @@ router.post(
 
       const {
         userId,
+        guardianPhone,
         roomId,
         joiningDate,
         monthlyFee,
@@ -445,31 +608,6 @@ router.post(
         return;
       }
 
-      /* Prevent two active renters in the same room */
-
-      const roomRenters = await db
-        .collection("renters")
-        .where("roomId", "==", roomId)
-        .get();
-
-      const roomAlreadyOccupied =
-        roomRenters.docs.some((doc) => {
-          const data = doc.data();
-
-          return (
-            data.hostelId === hostelId &&
-            data.status === "ACTIVE"
-          );
-        });
-
-      if (roomAlreadyOccupied) {
-        res.status(409).json({
-          message:
-            "Room already has an active renter",
-        });
-        return;
-      }
-
       /* Prevent duplicate active assignment */
 
       const existingRenter = await db
@@ -507,6 +645,7 @@ router.post(
         userId,
         hostelId,
         roomId,
+        guardianPhone,
         joiningDate,
         monthlyFee,
         securityDeposit:
@@ -763,6 +902,38 @@ router.get(
                   user.data()
                     ?.profilePhotoUrl ??
                   null,
+                dateOfBirth:
+                  user.data()
+                    ?.dateOfBirth ??
+                  null,
+                gender:
+                  user.data()
+                    ?.gender ??
+                  null,
+                address:
+                  user.data()
+                    ?.address ??
+                  null,
+                city:
+                  user.data()
+                    ?.city ??
+                  null,
+                state:
+                  user.data()
+                    ?.state ??
+                  null,
+                pincode:
+                  user.data()
+                    ?.pincode ??
+                  null,
+                emergencyContactName:
+                  user.data()
+                    ?.emergencyContactName ??
+                  null,
+                emergencyContactPhone:
+                  user.data()
+                    ?.emergencyContactPhone ??
+                  null,
               }
             : null,
 
@@ -932,7 +1103,7 @@ router.patch(
 );
 
 /* ---------------------------------------------------------
-   MARK RENTER AS LEFT
+   PERMANENTLY DELETE RENTER AND ALL RELATED DATA
 --------------------------------------------------------- */
 
 router.delete(
@@ -951,11 +1122,8 @@ router.delete(
         return;
       }
 
-      const hostelId =
-        req.params.hostelId;
-
-      const renterId =
-        req.params.renterId;
+      const hostelId = req.params.hostelId;
+      const renterId = req.params.renterId;
 
       if (
         typeof hostelId !== "string" ||
@@ -971,46 +1139,82 @@ router.delete(
         .collection("renters")
         .doc(renterId);
 
-      const renter =
-        await renterRef.get();
+      const renterSnapshot = await renterRef.get();
 
       if (
-        !renter.exists ||
-        renter.data()?.hostelId !==
-          hostelId
+        !renterSnapshot.exists ||
+        renterSnapshot.data()?.hostelId !== hostelId
       ) {
         res.status(404).json({
-          message:
-            "Renter not found",
+          message: "Renter not found",
         });
         return;
       }
 
-      const now =
-        new Date().toISOString();
+      const renterData = renterSnapshot.data() ?? {};
+      const userId = String(renterData.userId ?? "");
 
-      await renterRef.update({
-        status: "LEFT",
-        updatedAt: now,
-      });
+      if (!userId) {
+        res.status(409).json({
+          message: "Renter account is missing its user profile link",
+        });
+        return;
+      }
 
-      await writeAuditLog({
-        actorId:
-          req.authUser.id,
-        action:
-          "RENTER_LEFT",
-        entityType:
-          "RENTER",
-        entityId:
-          renterId,
-        metadata: {
-          hostelId,
-        },
-      });
+      const userRef = db.collection("users").doc(userId);
+      const userSnapshot = await userRef.get();
+      const firebaseUid = String(userSnapshot.data()?.firebaseUid ?? "");
+
+      // Remove all Firestore data that belongs to this renter.
+      await Promise.all([
+        deleteQueryDocuments(
+          db
+            .collection("fees")
+            .where("hostelId", "==", hostelId)
+            .where("renterId", "==", renterId),
+        ),
+        deleteQueryDocuments(
+          db
+            .collection("payments")
+            .where("hostelId", "==", hostelId)
+            .where("renterId", "==", renterId),
+        ),
+        deleteQueryDocuments(
+          db
+            .collection("repairs")
+            .where("hostelId", "==", hostelId)
+            .where("renterId", "==", renterId),
+        ),
+        deleteQueryDocuments(
+          db
+            .collection("notifications")
+            .where("userId", "==", userId),
+        ),
+        deleteRenterRelatedFiles(userId),
+        deleteRenterAuditLogs(renterId, userId),
+      ]);
+
+      await renterRef.delete();
+
+      if (userSnapshot.exists) {
+        await userRef.delete();
+      }
+
+      // Delete the Firebase Authentication account too, so the renter
+      // cannot sign in again with the deleted account.
+      if (firebaseUid) {
+        try {
+          await firebaseAuth.deleteUser(firebaseUid);
+        } catch (error: any) {
+          if (error?.code !== "auth/user-not-found") {
+            throw error;
+          }
+        }
+      }
 
       res.json({
         message:
-          "Renter marked as left successfully",
+          "Renter and all related data deleted permanently",
       });
     } catch (error) {
       next(error);

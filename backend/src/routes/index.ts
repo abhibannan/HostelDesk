@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import authRouter from "../modules/auth/auth.routes.js";
 import hostelsRouter from "../modules/hostels/hostels.routes.js";
+import payment_proofs_routes from "../modules/payment-proofs/payment-proofs.routes.js";
 import roomsRouter from "../modules/rooms/rooms.routes.js";
 import rentersRouter from "../modules/renters/renters.routes.js";
 import feesRouter from "../modules/fees/fees.routes.js";
@@ -29,5 +30,6 @@ router.use("/hostels", repairsRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/uploads", uploadsRouter);
+router.use("/hostels", payment_proofs_routes);
 
 export default router;

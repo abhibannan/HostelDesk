@@ -7,10 +7,6 @@ import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
 
-/* ---------------------------------------------------------
-   ROOM SCHEMAS
---------------------------------------------------------- */
-
 const roomSchema = z.object({
   roomNumber: z.string().trim().min(1).max(50),
   floor: z.string().trim().max(50).optional(),
@@ -19,10 +15,7 @@ const roomSchema = z.object({
 
 const updateRoomSchema = roomSchema.partial();
 
-/* ---------------------------------------------------------
-   CREATE ROOM
---------------------------------------------------------- */
-
+// Create room
 router.post(
   "/:hostelId/rooms",
   requireAuth,
@@ -33,18 +26,14 @@ router.post(
         req.authUser?.role !== "SUPER_ADMIN" &&
         req.authUser?.role !== "ADMIN"
       ) {
-        res.status(403).json({
-          message: "Access denied",
-        });
+        res.status(403).json({ message: "Access denied" });
         return;
       }
 
       const hostelId = req.params.hostelId;
 
       if (typeof hostelId !== "string") {
-        res.status(400).json({
-          message: "Invalid hostel ID",
-        });
+        res.status(400).json({ message: "Invalid hostel ID" });
         return;
       }
 
@@ -58,42 +47,29 @@ router.post(
         return;
       }
 
-      const hostelRef = db
-        .collection("hostels")
-        .doc(hostelId);
-
+      const hostelRef = db.collection("hostels").doc(hostelId);
       const hostel = await hostelRef.get();
 
       if (!hostel.exists) {
-        res.status(404).json({
-          message: "Hostel not found",
-        });
+        res.status(404).json({ message: "Hostel not found" });
         return;
       }
 
       const existing = await db
         .collection("rooms")
         .where("hostelId", "==", hostelId)
-        .where(
-          "roomNumber",
-          "==",
-          parsed.data.roomNumber,
-        )
+        .where("roomNumber", "==", parsed.data.roomNumber)
         .limit(1)
         .get();
 
       if (!existing.empty) {
         res.status(409).json({
-          message:
-            "Room number already exists in this hostel",
+          message: "Room number already exists in this hostel",
         });
         return;
       }
 
-      const roomRef = db
-        .collection("rooms")
-        .doc();
-
+      const roomRef = db.collection("rooms").doc();
       const now = new Date().toISOString();
 
       const room = {
@@ -129,10 +105,7 @@ router.post(
   },
 );
 
-/* ---------------------------------------------------------
-   LIST ROOMS
---------------------------------------------------------- */
-
+// List rooms
 router.get(
   "/:hostelId/rooms",
   requireAuth,
@@ -142,9 +115,7 @@ router.get(
       const hostelId = req.params.hostelId;
 
       if (typeof hostelId !== "string") {
-        res.status(400).json({
-          message: "Invalid hostel ID",
-        });
+        res.status(400).json({ message: "Invalid hostel ID" });
         return;
       }
 
@@ -153,63 +124,32 @@ router.get(
         .where("hostelId", "==", hostelId)
         .get();
 
-      type RoomListItem = {
-        id: string;
-        roomNumber: string;
-        floor: string | null;
-        status: string;
-        createdAt: string;
-        updatedAt: string;
-      };
+      const rooms = snapshot.docs
+  .map((doc) => {
+    const data = doc.data();
 
-      const rooms: RoomListItem[] =
-        snapshot.docs.map((doc) => {
-          const data = doc.data();
+    return {
+      id: doc.id,
+      hostelId: String(data.hostelId ?? hostelId),
+      roomNumber: String(data.roomNumber ?? ""),
+      floor: data.floor ?? null,
+      status: data.status ?? "ACTIVE",
+      createdAt: data.createdAt ?? null,
+      updatedAt: data.updatedAt ?? null,
+    };
+  })
+  .sort((a, b) =>
+    a.roomNumber.localeCompare(b.roomNumber),
+  );
 
-          return {
-            id: doc.id,
-            roomNumber: String(
-              data.roomNumber ?? "",
-            ),
-            floor:
-              data.floor == null
-                ? null
-                : String(data.floor),
-            status: String(
-              data.status ?? "ACTIVE",
-            ),
-            createdAt: String(
-              data.createdAt ?? "",
-            ),
-            updatedAt: String(
-              data.updatedAt ?? "",
-            ),
-          };
-        });
-
-      rooms.sort((a, b) =>
-        a.roomNumber.localeCompare(
-          b.roomNumber,
-          undefined,
-          {
-            numeric: true,
-          },
-        ),
-      );
-
-      res.json({
-        rooms,
-      });
+      res.json({ rooms });
     } catch (error) {
       next(error);
     }
   },
 );
 
-/* ---------------------------------------------------------
-   GET ONE ROOM
---------------------------------------------------------- */
-
+// Get one room
 router.get(
   "/:hostelId/rooms/:roomId",
   requireAuth,
@@ -223,31 +163,22 @@ router.get(
         typeof hostelId !== "string" ||
         typeof roomId !== "string"
       ) {
-        res.status(400).json({
-          message: "Invalid ID",
-        });
+        res.status(400).json({ message: "Invalid ID" });
         return;
       }
 
-      const roomRef = db
-        .collection("rooms")
-        .doc(roomId);
-
+      const roomRef = db.collection("rooms").doc(roomId);
       const room = await roomRef.get();
 
       if (!room.exists) {
-        res.status(404).json({
-          message: "Room not found",
-        });
+        res.status(404).json({ message: "Room not found" });
         return;
       }
 
       const data = room.data();
 
       if (data?.hostelId !== hostelId) {
-        res.status(404).json({
-          message: "Room not found",
-        });
+        res.status(404).json({ message: "Room not found" });
         return;
       }
 
@@ -263,10 +194,7 @@ router.get(
   },
 );
 
-/* ---------------------------------------------------------
-   UPDATE ROOM
---------------------------------------------------------- */
-
+// Update room
 router.patch(
   "/:hostelId/rooms/:roomId",
   requireAuth,
@@ -277,9 +205,7 @@ router.patch(
         req.authUser?.role !== "SUPER_ADMIN" &&
         req.authUser?.role !== "ADMIN"
       ) {
-        res.status(403).json({
-          message: "Access denied",
-        });
+        res.status(403).json({ message: "Access denied" });
         return;
       }
 
@@ -290,14 +216,11 @@ router.patch(
         typeof hostelId !== "string" ||
         typeof roomId !== "string"
       ) {
-        res.status(400).json({
-          message: "Invalid ID",
-        });
+        res.status(400).json({ message: "Invalid ID" });
         return;
       }
 
-      const parsed =
-        updateRoomSchema.safeParse(req.body);
+      const parsed = updateRoomSchema.safeParse(req.body);
 
       if (!parsed.success) {
         res.status(400).json({
@@ -307,19 +230,11 @@ router.patch(
         return;
       }
 
-      const roomRef = db
-        .collection("rooms")
-        .doc(roomId);
-
+      const roomRef = db.collection("rooms").doc(roomId);
       const room = await roomRef.get();
 
-      if (
-        !room.exists ||
-        room.data()?.hostelId !== hostelId
-      ) {
-        res.status(404).json({
-          message: "Room not found",
-        });
+      if (!room.exists || room.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Room not found" });
         return;
       }
 
@@ -327,23 +242,17 @@ router.patch(
         const duplicate = await db
           .collection("rooms")
           .where("hostelId", "==", hostelId)
-          .where(
-            "roomNumber",
-            "==",
-            parsed.data.roomNumber,
-          )
+          .where("roomNumber", "==", parsed.data.roomNumber)
           .limit(2)
           .get();
 
-        const duplicateExists =
-          duplicate.docs.some(
-            (doc) => doc.id !== roomId,
-          );
+        const duplicateExists = duplicate.docs.some(
+          (doc) => doc.id !== roomId,
+        );
 
         if (duplicateExists) {
           res.status(409).json({
-            message:
-              "Room number already exists in this hostel",
+            message: "Room number already exists in this hostel",
           });
           return;
         }
@@ -377,10 +286,7 @@ router.patch(
   },
 );
 
-/* ---------------------------------------------------------
-   DELETE ROOM
---------------------------------------------------------- */
-
+// Delete room
 router.delete(
   "/:hostelId/rooms/:roomId",
   requireAuth,
@@ -391,9 +297,7 @@ router.delete(
         req.authUser?.role !== "SUPER_ADMIN" &&
         req.authUser?.role !== "ADMIN"
       ) {
-        res.status(403).json({
-          message: "Access denied",
-        });
+        res.status(403).json({ message: "Access denied" });
         return;
       }
 
@@ -404,24 +308,29 @@ router.delete(
         typeof hostelId !== "string" ||
         typeof roomId !== "string"
       ) {
-        res.status(400).json({
-          message: "Invalid ID",
-        });
+        res.status(400).json({ message: "Invalid ID" });
         return;
       }
 
-      const roomRef = db
-        .collection("rooms")
-        .doc(roomId);
-
+      const roomRef = db.collection("rooms").doc(roomId);
       const room = await roomRef.get();
 
-      if (
-        !room.exists ||
-        room.data()?.hostelId !== hostelId
-      ) {
-        res.status(404).json({
-          message: "Room not found",
+      if (!room.exists || room.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Room not found" });
+        return;
+      }
+
+      const activeRenters = await db
+        .collection("renters")
+        .where("hostelId", "==", hostelId)
+        .where("roomId", "==", roomId)
+        .where("status", "==", "ACTIVE")
+        .limit(1)
+        .get();
+
+      if (!activeRenters.empty) {
+        res.status(409).json({
+          message: "Cannot delete a room with an active renter",
         });
         return;
       }
@@ -433,9 +342,7 @@ router.delete(
         action: "DELETE_ROOM",
         entityType: "ROOM",
         entityId: roomId,
-        metadata: {
-          hostelId,
-        },
+        metadata: { hostelId },
       });
 
       res.json({
