@@ -19,7 +19,10 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   signInWithEmailAndPassword,
   signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from "firebase/auth";
+import * as WebBrowser from "expo-web-browser";
 import { auth } from "./firebase";
 import { COLORS } from "./src/constants/theme";
 import {
@@ -32,6 +35,7 @@ import {
   Repair,
   Dashboard,
   EMPTY_DASHBOARD,
+  User,
 } from "./src/types";
 import {
   getName,
@@ -42,9 +46,6 @@ import {
 } from "./src/utils/formatters";
 import { API_URL, parseJsonResponse as jsonResponse } from "./src/services/api";
 
-
-
-
 import { Header, BottomTab } from "./src/components/common";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { HostelsScreen } from "./src/screens/HostelsScreen";
@@ -53,6 +54,9 @@ import { RentersScreen } from "./src/screens/RentersScreen";
 import { FeesScreen } from "./src/screens/FeesScreen";
 import { PaymentsScreen } from "./src/screens/PaymentsScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
+import { RenterPortalScreen } from "./src/screens/RenterPortalScreen";
+
+WebBrowser.maybeCompleteAuthSession();
 
 
 function AppContent() {
@@ -62,6 +66,13 @@ function AppContent() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const [loginRole, setLoginRole] = useState<"RENTER" | "ADMIN">("RENTER");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentRenterDoc, setCurrentRenterDoc] = useState<Renter | null>(null);
+  const [showRenterEmailFallback, setShowRenterEmailFallback] = useState(false);
+  const [renterEmailInput, setRenterEmailInput] = useState("");
+  const [renterPasswordInput, setRenterPasswordInput] = useState("");
 
   const [page, setPage] = useState<Tab>("dashboard");
   const [dashboard, setDashboard] = useState<Dashboard>(EMPTY_DASHBOARD);
@@ -153,9 +164,136 @@ function AppContent() {
     return listFrom<Hostel>(data, "hostels");
   }
 
-  async function login() {
+  async function handleAuthenticatedUser(idToken: string, expectedRole?: "RENTER" | "ADMIN") {
+    const meResponse = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${idToken}` } });
+    const meData = await jsonResponse(meResponse);
+    if (!meResponse.ok) throw new Error(String((meData as Record<string, unknown>)?.message || "Unable to verify account."));
+
+    const me = meData as Record<string, any>;
+    const user = (me.user || me) as User;
+    const role = user?.role;
+
+    if (expectedRole === "RENTER" && role !== "RENTER") {
+      await signOut(auth);
+      throw new Error("This account is not registered as a renter. Please login using the Admin tab.");
+    }
+
+    if (expectedRole === "ADMIN" && role !== "ADMIN" && role !== "SUPER_ADMIN") {
+      await signOut(auth);
+      throw new Error("This account does not have Admin access. Please login using the Renter (Google) tab.");
+    }
+
+    setToken(idToken);
+    setCurrentUser(user);
+
+    const hostelData = await fetchHostels(idToken);
+    setHostels(hostelData);
+
+    if (role === "RENTER") {
+      if (hostelData[0]?.id) {
+        setSelectedHostelId(hostelData[0].id);
+        await loadRenterData(idToken, hostelData[0].id, user.id);
+      }
+      return;
+    }
+
+    setSelectedHostelId(hostelData[0]?.id || "");
+    const dashResponse = await fetch(`${API_URL}/dashboard`, { headers: { Authorization: `Bearer ${idToken}` } });
+    const dashData = await jsonResponse(dashResponse);
+    if (!dashResponse.ok) throw new Error(String((dashData as Record<string, unknown>)?.message || "Unable to load dashboard."));
+    setDashboard(dashboardFrom(dashData));
+    setPage("dashboard");
+  }
+
+  async function loadRenterData(idToken: string, hostelId: string, userId: string) {
+    setDataLoading(true);
+    try {
+      const [rentersData, paymentsData, repairsData] = await Promise.all([
+        fetch(`${API_URL}/hostels/${hostelId}/renters`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }).then(jsonResponse),
+        fetch(`${API_URL}/hostels/${hostelId}/payments`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }).then(jsonResponse),
+        fetch(`${API_URL}/hostels/${hostelId}/my-repairs`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }).then(jsonResponse).catch(() => ({ repairs: [] })),
+      ]);
+
+      const rentersList = listFrom<Renter>(rentersData, "renters");
+      const myRenter = rentersList.find((r) => r.userId === userId || r.user?.id === userId) || null;
+      setCurrentRenterDoc(myRenter);
+
+      if (myRenter) {
+        const feesData = await fetch(`${API_URL}/hostels/${hostelId}/renters/${myRenter.id}/fees`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }).then(jsonResponse);
+        setFees(listFrom<Fee>(feesData, "fees"));
+      }
+
+      const allPayments = listFrom<Payment>(paymentsData, "payments");
+      const myPayments = myRenter ? allPayments.filter((p) => p.renterId === myRenter.id) : allPayments;
+      setPayments(myPayments);
+      setRepairs(listFrom<Repair>(repairsData, "repairs"));
+    } catch (err) {
+      console.error("Failed to load renter data:", err);
+    } finally {
+      setDataLoading(false);
+    }
+  }
+
+  async function loginWithGoogle() {
+    setLoading(true);
+    setError("");
+    try {
+      if (Platform.OS === "web") {
+        const provider = new GoogleAuthProvider();
+        const credential = await signInWithPopup(auth, provider);
+        const idToken = await credential.user.getIdToken();
+        await handleAuthenticatedUser(idToken, "RENTER");
+        return;
+      }
+
+      // Mobile Google Sign-In via WebBrowser
+      const authUrl = `https://staynexa-17a95.firebaseapp.com/__/auth/handler?apiKey=AIzaSyAZZlhQGPf0eXNlXYdn3cHFnMzKhF7oEqk&appName=%5BDEFAULT%5D&authType=signInWithPopup&providerId=google.com&scopes=profile%20email`;
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, "staynexa://");
+
+      if (result.type === "success" && auth.currentUser) {
+        const idToken = await auth.currentUser.getIdToken();
+        await handleAuthenticatedUser(idToken, "RENTER");
+        return;
+      }
+
+      setShowRenterEmailFallback(true);
+    } catch (err) {
+      setShowRenterEmailFallback(true);
+      setError(err instanceof Error ? err.message : "Google Sign-In failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loginRenterWithEmail() {
+    if (!renterEmailInput.trim() || !renterPasswordInput) {
+      setError("Please enter your registered Google email and password.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const credential = await signInWithEmailAndPassword(auth, renterEmailInput.trim(), renterPasswordInput);
+      const idToken = await credential.user.getIdToken();
+      await handleAuthenticatedUser(idToken, "RENTER");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Renter login failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loginAdmin() {
     if (!email.trim() || !password) {
-      setError("Enter your email and password.");
+      setError("Enter your admin email and password.");
       return;
     }
     setLoading(true);
@@ -163,30 +301,9 @@ function AppContent() {
     try {
       const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const idToken = await credential.user.getIdToken();
-
-      const meResponse = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${idToken}` } });
-      const meData = await jsonResponse(meResponse);
-      if (!meResponse.ok) throw new Error(String((meData as Record<string, unknown>)?.message || "Unable to verify account."));
-
-      const me = meData as Record<string, any>;
-      const role = me.user?.role || me.role;
-      if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
-        await signOut(auth);
-        throw new Error("This account does not have Admin access.");
-      }
-
-      setToken(idToken);
-      const hostelData = await fetchHostels(idToken);
-      setHostels(hostelData);
-      setSelectedHostelId(hostelData[0]?.id || "");
-
-      const dashResponse = await fetch(`${API_URL}/dashboard`, { headers: { Authorization: `Bearer ${idToken}` } });
-      const dashData = await jsonResponse(dashResponse);
-      if (!dashResponse.ok) throw new Error(String((dashData as Record<string, unknown>)?.message || "Unable to load dashboard."));
-      setDashboard(dashboardFrom(dashData));
-      setPage("dashboard");
+      await handleAuthenticatedUser(idToken, "ADMIN");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof Error ? err.message : "Admin login failed.");
     } finally {
       setLoading(false);
     }
@@ -195,6 +312,8 @@ function AppContent() {
   async function logout() {
     await signOut(auth);
     setToken(null);
+    setCurrentUser(null);
+    setCurrentRenterDoc(null);
     setDashboard(EMPTY_DASHBOARD);
     setHostels([]);
     setSelectedHostelId("");
@@ -206,7 +325,59 @@ function AppContent() {
     setPage("dashboard");
     setEmail("");
     setPassword("");
+    setRenterEmailInput("");
+    setRenterPasswordInput("");
     setError("");
+  }
+
+  async function handleRenterSubmitProof(params: {
+    feeId: string;
+    amount: number;
+    paymentDate: string;
+    proofUrl: string;
+    reference?: string;
+    notes?: string;
+  }) {
+    if (!token || !selectedHostelId || !currentRenterDoc) {
+      throw new Error("Missing session or renter profile.");
+    }
+    await request(`/hostels/${selectedHostelId}/payment-proofs`, {
+      method: "POST",
+      body: JSON.stringify({
+        renterId: currentRenterDoc.id,
+        feeId: params.feeId,
+        amount: params.amount,
+        paymentDate: params.paymentDate,
+        proofUrl: params.proofUrl,
+        reference: params.reference,
+        notes: params.notes,
+      }),
+    });
+    if (currentUser) {
+      await loadRenterData(token, selectedHostelId, currentUser.id);
+    }
+  }
+
+  async function handleRenterSubmitRepair(params: {
+    title: string;
+    description: string;
+    priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  }) {
+    if (!token || !selectedHostelId) {
+      throw new Error("Missing session.");
+    }
+    await request(`/hostels/${selectedHostelId}/repairs`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: params.title,
+        description: params.description,
+        priority: params.priority,
+        roomId: currentRenterDoc?.roomId || currentRenterDoc?.room?.id,
+      }),
+    });
+    if (currentUser) {
+      await loadRenterData(token, selectedHostelId, currentUser.id);
+    }
   }
 
   async function refreshDashboardOnly() {
@@ -742,29 +913,220 @@ function AppContent() {
             <View style={styles.loginInner}>
               <View style={styles.brandMark}><Ionicons name="business" size={23} color="#FFFFFF" /></View>
               <Text style={styles.brandText}>StayNexa</Text>
-              <Text style={styles.loginTitle}>Admin Login</Text>
-              <Text style={styles.loginSubtitle}>Manage your hostels from one place.</Text>
 
-              <Text style={styles.label}>Email</Text>
-              <View style={styles.inputWithIcon}>
-                <Ionicons name="mail-outline" size={20} color={COLORS.secondary} />
-                <TextInput style={styles.inputWithIconText} value={email} onChangeText={setEmail} placeholder="Enter your email" placeholderTextColor="#94A3B8" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+              {/* Portal Switcher */}
+              <View style={styles.loginRoleSwitch}>
+                <TouchableOpacity
+                  style={[styles.loginRoleTab, loginRole === "RENTER" && styles.loginRoleTabActive]}
+                  onPress={() => {
+                    setLoginRole("RENTER");
+                    setError("");
+                  }}
+                >
+                  <Ionicons
+                    name={loginRole === "RENTER" ? "person" : "person-outline"}
+                    size={16}
+                    color={loginRole === "RENTER" ? COLORS.primary : COLORS.secondary}
+                  />
+                  <Text style={[styles.loginRoleTabText, loginRole === "RENTER" && styles.loginRoleTabTextActive]}>
+                    Resident / Renter
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.loginRoleTab, loginRole === "ADMIN" && styles.loginRoleTabActive]}
+                  onPress={() => {
+                    setLoginRole("ADMIN");
+                    setError("");
+                  }}
+                >
+                  <Ionicons
+                    name={loginRole === "ADMIN" ? "shield-checkmark" : "shield-checkmark-outline"}
+                    size={16}
+                    color={loginRole === "ADMIN" ? COLORS.primary : COLORS.secondary}
+                  />
+                  <Text style={[styles.loginRoleTabText, loginRole === "ADMIN" && styles.loginRoleTabTextActive]}>
+                    Hostel Admin
+                  </Text>
+                </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputWithIcon}>
-                <Ionicons name="lock-closed-outline" size={20} color={COLORS.secondary} />
-                <TextInput style={styles.inputWithIconText} value={password} onChangeText={setPassword} placeholder="Enter your password" placeholderTextColor="#94A3B8" secureTextEntry={!showPassword} autoCapitalize="none" />
-                <TouchableOpacity onPress={() => setShowPassword((v) => !v)}><Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color={COLORS.secondary} /></TouchableOpacity>
-              </View>
+              {loginRole === "RENTER" ? (
+                <>
+                  <Text style={styles.loginTitle}>Resident Portal</Text>
+                  <Text style={styles.loginSubtitle}>
+                    Access your room details, fee payment status, upload receipts & register repair complaints.
+                  </Text>
 
-              {error ? <View style={styles.errorBox}><Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} /><Text style={styles.errorText}>{error}</Text></View> : null}
-              <TouchableOpacity style={[styles.primaryButton, { marginTop: 12 }]} disabled={loading} onPress={() => void login()}>
-                {loading ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Login</Text><Ionicons name="arrow-forward" size={19} color="#FFFFFF" /></>}
-              </TouchableOpacity>
+                  {/* Google Only Login Button */}
+                  <TouchableOpacity
+                    style={[styles.googleButton, loading && styles.btnDisabled]}
+                    disabled={loading}
+                    onPress={() => void loginWithGoogle()}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color={COLORS.text} />
+                    ) : (
+                      <>
+                        <View style={styles.googleIconBox}>
+                          <Ionicons name="logo-google" size={18} color="#EA4335" />
+                        </View>
+                        <Text style={styles.googleButtonText}>Continue with Google</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <Text style={styles.renterHintText}>
+                    Renters must log in using their registered Google account.
+                  </Text>
+
+                  {/* Fallback if WebBrowser popup cannot open in some environments */}
+                  {showRenterEmailFallback ? (
+                    <View style={styles.renterFallbackBox}>
+                      <Text style={styles.fallbackTitle}>Direct Google Account Verification</Text>
+                      <Text style={styles.fallbackSub}>
+                        Enter your registered Google email and password to log in directly:
+                      </Text>
+
+                      <Text style={styles.label}>Registered Google Email</Text>
+                      <View style={styles.inputWithIcon}>
+                        <Ionicons name="mail-outline" size={20} color={COLORS.secondary} />
+                        <TextInput
+                          style={styles.inputWithIconText}
+                          value={renterEmailInput}
+                          onChangeText={setRenterEmailInput}
+                          placeholder="your.email@gmail.com"
+                          placeholderTextColor="#94A3B8"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                        />
+                      </View>
+
+                      <Text style={styles.label}>Password</Text>
+                      <View style={styles.inputWithIcon}>
+                        <Ionicons name="lock-closed-outline" size={20} color={COLORS.secondary} />
+                        <TextInput
+                          style={styles.inputWithIconText}
+                          value={renterPasswordInput}
+                          onChangeText={setRenterPasswordInput}
+                          placeholder="Your account password"
+                          placeholderTextColor="#94A3B8"
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                        />
+                        <TouchableOpacity onPress={() => setShowPassword((v) => !v)}>
+                          <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color={COLORS.secondary} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.primaryButton}
+                        disabled={loading}
+                        onPress={() => void loginRenterWithEmail()}
+                      >
+                        {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>Verify & Open Portal</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.fallbackToggle}
+                      onPress={() => setShowRenterEmailFallback(true)}
+                    >
+                      <Text style={styles.fallbackToggleText}>
+                        Trouble with Google pop-up? Sign in with registered Google email
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.loginTitle}>Admin Login</Text>
+                  <Text style={styles.loginSubtitle}>Manage your hostels from one place.</Text>
+
+                  <Text style={styles.label}>Email</Text>
+                  <View style={styles.inputWithIcon}>
+                    <Ionicons name="mail-outline" size={20} color={COLORS.secondary} />
+                    <TextInput
+                      style={styles.inputWithIconText}
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="Enter your email"
+                      placeholderTextColor="#94A3B8"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+
+                  <Text style={styles.label}>Password</Text>
+                  <View style={styles.inputWithIcon}>
+                    <Ionicons name="lock-closed-outline" size={20} color={COLORS.secondary} />
+                    <TextInput
+                      style={styles.inputWithIconText}
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="Enter your password"
+                      placeholderTextColor="#94A3B8"
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity onPress={() => setShowPassword((v) => !v)}>
+                      <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} color={COLORS.secondary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.primaryButton, { marginTop: 12 }]}
+                    disabled={loading}
+                    onPress={() => void loginAdmin()}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Text style={styles.primaryButtonText}>Login as Admin</Text>
+                        <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {error ? (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  // If logged in user is a RENTER, render dedicated Renter Portal
+  if (currentUser?.role === "RENTER") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <RenterPortalScreen
+          user={currentUser}
+          renter={currentRenterDoc}
+          hostel={selectedHostel || hostels[0] || null}
+          fees={fees}
+          payments={payments}
+          repairs={repairs}
+          onRefresh={() => {
+            if (currentUser && selectedHostelId) {
+              void loadRenterData(token, selectedHostelId, currentUser.id);
+            }
+          }}
+          onLogout={() => void logout()}
+          onSubmitProof={handleRenterSubmitProof}
+          onSubmitRepair={handleRenterSubmitRepair}
+        />
       </SafeAreaView>
     );
   }
@@ -1109,6 +1471,111 @@ const styles = StyleSheet.create({
   bottomLabelActive: { color: COLORS.primary, fontWeight: "800" },
   refreshOverlay: { position: "absolute", right: 16, bottom: 83, backgroundColor: "#FFFFFF", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 8, elevation: 2 },
   refreshOverlayText: { fontSize: 11, color: COLORS.secondary },
+  loginRoleSwitch: {
+    flexDirection: "row",
+    backgroundColor: COLORS.grayFill,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  loginRoleTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  loginRoleTabActive: {
+    backgroundColor: COLORS.card,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  loginRoleTabText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+  loginRoleTabTextActive: {
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    borderRadius: 14,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    gap: 12,
+    marginTop: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  googleIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#FEE2E2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  googleButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  renterHintText: {
+    marginTop: 12,
+    fontSize: 12,
+    color: COLORS.secondary,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  fallbackToggle: {
+    marginTop: 18,
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  fallbackToggleText: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: "600",
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
+  renterFallbackBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.grayFill,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  fallbackTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  fallbackSub: {
+    fontSize: 11,
+    color: COLORS.secondary,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  btnDisabled: {
+    opacity: 0.6,
+  },
 });
 
 function App() {

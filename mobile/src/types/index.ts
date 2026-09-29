@@ -17,6 +17,8 @@ export type Room = {
 
 export type Renter = {
   id: string;
+  userId?: string;
+  hostelId?: string;
   name?: string;
   fullName?: string;
   email?: string;
@@ -80,12 +82,30 @@ export type Payment = {
   createdAt?: string;
 };
 
+export type User = {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string | null;
+  role: "SUPER_ADMIN" | "ADMIN" | "RENTER";
+  status?: string;
+};
+
+export type RenterTab = "details" | "fees" | "repairs";
+
 export type Repair = {
   id: string;
-  title?: string;
-  description?: string;
-  status?: string;
+  hostelId?: string;
+  renterId?: string;
+  roomId?: string;
+  title: string;
+  description: string;
+  priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status?: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
+  adminNotes?: string | null;
   createdAt?: string;
+  updatedAt?: string;
 };
 
 export type Dashboard = {
