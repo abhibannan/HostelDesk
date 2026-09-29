@@ -43,29 +43,42 @@ export async function requireAuth(
 
   // Step 2: Find StayNexa user profile
   try {
+    let userDocument = null;
     const snapshot = await db
       .collection("users")
       .where("firebaseUid", "==", firebaseUser.uid)
       .limit(1)
       .get();
 
-    if (snapshot.empty) {
+    if (!snapshot.empty) {
+      userDocument = snapshot.docs[0];
+    } else if (firebaseUser.email) {
+      // Fallback by email (e.g. created by admin, now logging in with Google)
+      const emailSnapshot = await db
+        .collection("users")
+        .where("email", "==", firebaseUser.email.toLowerCase())
+        .limit(1)
+        .get();
+
+      if (!emailSnapshot.empty) {
+        userDocument = emailSnapshot.docs[0];
+        // Auto-link the new Firebase UID
+        await userDocument.ref.update({
+          firebaseUid: firebaseUser.uid,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (!userDocument) {
       console.error(
-        "STAYNEXA USER PROFILE NOT FOUND FOR FIREBASE UID:",
+        "STAYNEXA USER PROFILE NOT FOUND FOR FIREBASE UID / EMAIL:",
         firebaseUser.uid,
+        firebaseUser.email,
       );
 
       res.status(404).json({
-        message: "StayNexa user profile not found",
-      });
-      return;
-    }
-
-    const userDocument = snapshot.docs[0];
-
-    if (!userDocument) {
-      res.status(404).json({
-        message: "StayNexa user profile not found",
+        message: "StayNexa user profile not found. Please contact your hostel admin.",
       });
       return;
     }
