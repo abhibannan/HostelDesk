@@ -1,5 +1,5 @@
 // Default to local development server, or replace with your online hosted URL (e.g., Render/Railway)
-export const API_URL = "http://192.168.0.183:3000/api/v1";
+export const API_URL = "https://staynexa-1.onrender.com/api/v1";
 
 export async function parseJsonResponse(response: Response): Promise<unknown> {
   const text = await response.text();
