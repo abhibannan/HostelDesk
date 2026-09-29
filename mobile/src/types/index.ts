@@ -1,0 +1,133 @@
+export type Tab = "dashboard" | "hostels" | "rooms" | "renters" | "fees" | "payments" | "more";
+
+export type Hostel = {
+  id: string;
+  name: string;
+  address?: string;
+  city?: string;
+  state?: string;
+};
+
+export type Room = {
+  id: string;
+  roomNumber: string;
+  floor?: string | number;
+  status?: string;
+};
+
+export type Renter = {
+  id: string;
+  name?: string;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  guardianPhone?: string;
+  status?: string;
+  roomId?: string;
+  joiningDate?: string;
+  monthlyFee?: number;
+  securityDeposit?: number;
+  user?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    fullName?: string;
+    email?: string;
+    phone?: string;
+    profilePhotoUrl?: string | null;
+    dateOfBirth?: string | null;
+    gender?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    pincode?: string | null;
+    emergencyContactName?: string | null;
+    emergencyContactPhone?: string | null;
+  };
+  room?: {
+    id?: string;
+    roomNumber?: string;
+    floor?: string | number | null;
+  };
+};
+
+export type Fee = {
+  id: string;
+  renterId: string;
+  month: string;
+  amount: number;
+  paidAmount?: number;
+  dueDate: string;
+  description?: string;
+  status?: string;
+};
+
+export type Payment = {
+  id: string;
+  renterId?: string;
+  feeId?: string;
+  amount?: number;
+  paymentDate?: string;
+  paymentMethod?: string;
+  reference?: string;
+  notes?: string;
+  proofUrl?: string;
+  status?: string;
+  reviewNote?: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+  createdAt?: string;
+};
+
+export type Repair = {
+  id: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  createdAt?: string;
+};
+
+export type Dashboard = {
+  totalRooms: number;
+  activeRooms: number;
+  occupiedRooms: number;
+  availableRooms: number;
+  activeRenters: number;
+  totalFees: number;
+  paidFees: number;
+  pendingFees: number;
+  partiallyPaidFees: number;
+  overdueFees: number;
+  outstandingFees: number;
+  totalPayments: number;
+  paidPayments: number;
+  pendingPayments: number;
+  totalRepairRequests: number;
+  submittedRepairs: number;
+  inProgressRepairs: number;
+  resolvedRepairs: number;
+  cancelledRepairs: number;
+};
+
+export const EMPTY_DASHBOARD: Dashboard = {
+  totalRooms: 0,
+  activeRooms: 0,
+  occupiedRooms: 0,
+  availableRooms: 0,
+  activeRenters: 0,
+  totalFees: 0,
+  paidFees: 0,
+  pendingFees: 0,
+  partiallyPaidFees: 0,
+  overdueFees: 0,
+  outstandingFees: 0,
+  totalPayments: 0,
+  paidPayments: 0,
+  pendingPayments: 0,
+  totalRepairRequests: 0,
+  submittedRepairs: 0,
+  inProgressRepairs: 0,
+  resolvedRepairs: 0,
+  cancelledRepairs: 0,
+};

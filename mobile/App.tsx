@@ -3,11 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,469 +15,45 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import Svg, {
-  Circle,
-  G,
-  Line,
-  Rect,
-  Text as SvgText,
-} from "react-native-svg";
+
 import {
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
-import { auth } from "./firebase.ts";
+import { auth } from "./firebase";
+import { COLORS } from "./src/constants/theme";
+import {
+  Tab,
+  Hostel,
+  Room,
+  Renter,
+  Fee,
+  Payment,
+  Repair,
+  Dashboard,
+  EMPTY_DASHBOARD,
+} from "./src/types";
+import {
+  getName,
+  listFrom,
+  dashboardFrom,
+  today,
+  currentMonth,
+} from "./src/utils/formatters";
+import { API_URL, parseJsonResponse as jsonResponse } from "./src/services/api";
 
-const API_URL = "http://192.168.0.183:3000/api/v1";
 
-const COLORS = {
-  primary: "#2563EB",
-  primaryDark: "#1D4ED8",
-  primaryLight: "#EFF6FF",
-  background: "#FFFFFF",
-  card: "#FFFFFF",
-  text: "#0F172A",
-  secondary: "#64748B",
-  border: "#E2E8F0",
-  success: "#16A34A",
-  successLight: "#F0FDF4",
-  danger: "#DC2626",
-  dangerLight: "#FEF2F2",
-  warning: "#D97706",
-  warningLight: "#FFFBEB",
-  purple: "#7C3AED",
-  purpleLight: "#F5F3FF",
-  orange: "#EA580C",
-  orangeLight: "#FFF7ED",
-  grayFill: "#F1F5F9",
-};
 
-type Tab = "dashboard" | "hostels" | "rooms" | "renters" | "fees" | "payments" | "more";
 
-type Hostel = {
-  id: string;
-  name: string;
-  address?: string;
-  city?: string;
-  state?: string;
-};
+import { Header, BottomTab } from "./src/components/common";
+import { DashboardScreen } from "./src/screens/DashboardScreen";
+import { HostelsScreen } from "./src/screens/HostelsScreen";
+import { RoomsScreen } from "./src/screens/RoomsScreen";
+import { RentersScreen } from "./src/screens/RentersScreen";
+import { FeesScreen } from "./src/screens/FeesScreen";
+import { PaymentsScreen } from "./src/screens/PaymentsScreen";
+import { MoreScreen } from "./src/screens/MoreScreen";
 
-type Room = {
-  id: string;
-  roomNumber: string;
-  floor?: string | number;
-  status?: string;
-};
-
-type Renter = {
-  id: string;
-  name?: string;
-  fullName?: string;
-  email?: string;
-  phone?: string;
-  guardianPhone?: string;
-  status?: string;
-  roomId?: string;
-  joiningDate?: string;
-  monthlyFee?: number;
-  securityDeposit?: number;
-  user?: {
-    id?: string;
-    firstName?: string;
-    lastName?: string;
-    name?: string;
-    fullName?: string;
-    email?: string;
-    phone?: string;
-    profilePhotoUrl?: string | null;
-    dateOfBirth?: string | null;
-    gender?: string | null;
-    address?: string | null;
-    city?: string | null;
-    state?: string | null;
-    pincode?: string | null;
-    emergencyContactName?: string | null;
-    emergencyContactPhone?: string | null;
-  };
-  room?: {
-    id?: string;
-    roomNumber?: string;
-    floor?: string | number | null;
-  };
-};
-
-type Fee = {
-  id: string;
-  renterId: string;
-  month: string;
-  amount: number;
-  paidAmount?: number;
-  dueDate: string;
-  description?: string;
-  status?: string;
-};
-
-type Payment = {
-  id: string;
-  renterId?: string;
-  feeId?: string;
-  amount?: number;
-  paymentDate?: string;
-  paymentMethod?: string;
-  reference?: string;
-  notes?: string;
-  proofUrl?: string;
-  status?: string;
-  reviewNote?: string;
-  submittedAt?: string;
-  reviewedAt?: string;
-  createdAt?: string;
-};
-
-type Repair = {
-  id: string;
-  title?: string;
-  description?: string;
-  status?: string;
-  createdAt?: string;
-};
-
-type Dashboard = {
-  totalRooms: number;
-  activeRooms: number;
-  occupiedRooms: number;
-  availableRooms: number;
-  activeRenters: number;
-  totalFees: number;
-  paidFees: number;
-  pendingFees: number;
-  partiallyPaidFees: number;
-  overdueFees: number;
-  outstandingFees: number;
-  totalPayments: number;
-  paidPayments: number;
-  pendingPayments: number;
-  totalRepairRequests: number;
-  submittedRepairs: number;
-  inProgressRepairs: number;
-  resolvedRepairs: number;
-  cancelledRepairs: number;
-};
-
-const EMPTY_DASHBOARD: Dashboard = {
-  totalRooms: 0,
-  activeRooms: 0,
-  occupiedRooms: 0,
-  availableRooms: 0,
-  activeRenters: 0,
-  totalFees: 0,
-  paidFees: 0,
-  pendingFees: 0,
-  partiallyPaidFees: 0,
-  overdueFees: 0,
-  outstandingFees: 0,
-  totalPayments: 0,
-  paidPayments: 0,
-  pendingPayments: 0,
-  totalRepairRequests: 0,
-  submittedRepairs: 0,
-  inProgressRepairs: 0,
-  resolvedRepairs: 0,
-  cancelledRepairs: 0,
-};
-
-function getName(renter: Renter): string {
-  if (renter.name) return renter.name;
-  if (renter.fullName) return renter.fullName;
-  if (renter.user?.name) return renter.user.name;
-  if (renter.user?.fullName) return renter.user.fullName;
-  const first = renter.user?.firstName ?? "";
-  const last = renter.user?.lastName ?? "";
-  return `${first} ${last}`.trim() || renter.email || renter.user?.email || "Renter";
-}
-
-function getEmail(renter: Renter): string {
-  return renter.email || renter.user?.email || "";
-}
-
-function listFrom<T>(data: unknown, key: string): T[] {
-  if (Array.isArray(data)) return data as T[];
-  if (!data || typeof data !== "object") return [];
-  const object = data as Record<string, unknown>;
-  if (Array.isArray(object[key])) return object[key] as T[];
-  if (Array.isArray(object.data)) return object.data as T[];
-  if (Array.isArray(object.items)) return object.items as T[];
-  return [];
-}
-
-function dashboardFrom(data: unknown): Dashboard {
-  const outer = data as Record<string, unknown> | null;
-  const raw = (outer?.dashboard ?? data) as Record<string, unknown> | null;
-  const value = raw || {};
-  const number = (key: string) => Number(value[key] ?? 0);
-
-  return {
-    totalRooms: number("totalRooms"),
-    activeRooms: number("activeRooms"),
-    occupiedRooms: number("occupiedRooms"),
-    availableRooms: number("availableRooms"),
-    activeRenters: number("activeRenters"),
-    totalFees: number("totalFees"),
-    paidFees: number("paidFees"),
-    pendingFees: number("pendingFees"),
-    partiallyPaidFees: number("partiallyPaidFees"),
-    overdueFees: number("overdueFees"),
-    outstandingFees: number("outstandingFees"),
-    totalPayments: number("totalPayments"),
-    paidPayments: number("paidPayments"),
-    pendingPayments: number("pendingPayments"),
-    totalRepairRequests: number("totalRepairRequests"),
-    submittedRepairs: number("submittedRepairs"),
-    inProgressRepairs: number("inProgressRepairs"),
-    resolvedRepairs: number("resolvedRepairs"),
-    cancelledRepairs: number("cancelledRepairs"),
-  };
-}
-
-function money(value: number | undefined): string {
-  return `₹${Number(value ?? 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function currentMonth(): string {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function statusLabel(value: string): string {
-  return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-async function jsonResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { message: text };
-  }
-}
-
-function Header({ title, subtitle, onRefresh }: { title: string; subtitle?: string; onRefresh?: () => void }) {
-  return (
-    <View style={styles.header}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.headerTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
-      </View>
-      {onRefresh ? (
-        <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
-          <Ionicons name="refresh-outline" size={21} color={COLORS.primary} />
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-}
-
-function StatCard({ title, value, icon, tone }: { title: string; value: string | number; icon: keyof typeof Ionicons.glyphMap; tone: "blue" | "green" | "orange" | "purple" | "red" }) {
-  const toneMap = {
-    blue: { bg: COLORS.primaryLight, icon: COLORS.primary },
-    green: { bg: COLORS.successLight, icon: COLORS.success },
-    orange: { bg: COLORS.orangeLight, icon: COLORS.orange },
-    purple: { bg: COLORS.purpleLight, icon: COLORS.purple },
-    red: { bg: COLORS.dangerLight, icon: COLORS.danger },
-  } as const;
-  const colors = toneMap[tone];
-
-  return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIcon, { backgroundColor: colors.bg }]}>
-        <Ionicons name={icon} size={21} color={colors.icon} />
-      </View>
-      <Text style={styles.statTitle}>{title}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-    </View>
-  );
-}
-
-function SectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {action && onAction ? (
-        <TouchableOpacity onPress={onAction}>
-          <Text style={styles.sectionAction}>{action}</Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-}
-
-function DonutChart({ data, centerText, centerSub }: { data: { label: string; value: number; color: string }[]; centerText: string; centerSub: string }) {
-  const size = 190;
-  const strokeWidth = 24;
-  const radius = 66;
-  const circumference = 2 * Math.PI * radius;
-  const total = data.reduce((sum, item) => sum + Math.max(0, item.value), 0);
-
-  let offset = 0;
-  const circles = data.map((item, index) => {
-    const fraction = total > 0 ? Math.max(0, item.value) / total : 0;
-    const dash = fraction * circumference;
-    const element = (
-      <Circle
-        key={`${item.label}-${index}`}
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={item.color}
-        strokeWidth={strokeWidth}
-        strokeDasharray={`${dash} ${circumference - dash}`}
-        strokeDashoffset={-offset}
-        rotation="-90"
-        origin={`${size / 2}, ${size / 2}`}
-      />
-    );
-    offset += dash;
-    return element;
-  });
-
-  return (
-    <View style={styles.chartBlock}>
-      <View style={{ alignItems: "center" }}>
-        <Svg width={size} height={size}>
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={COLORS.grayFill}
-            strokeWidth={strokeWidth}
-          />
-          {circles}
-          <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="23" fontWeight="800" fill={COLORS.text}>
-            {centerText}
-          </SvgText>
-          <SvgText x={size / 2} y={size / 2 + 19} textAnchor="middle" fontSize="11" fill={COLORS.secondary}>
-            {centerSub}
-          </SvgText>
-        </Svg>
-      </View>
-      <View style={styles.legendList}>
-        {data.map((item) => (
-          <View key={item.label} style={styles.legendRow}>
-            <View style={styles.legendLeft}>
-              <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-              <Text style={styles.legendLabel}>{item.label}</Text>
-            </View>
-            <Text style={styles.legendValue}>{item.value}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function BarChart({ data }: { data: { label: string; value: number; color: string }[] }) {
-  const width = 330;
-  const height = 220;
-  const paddingLeft = 16;
-  const paddingRight = 16;
-  const paddingTop = 14;
-  const paddingBottom = 34;
-  const chartWidth = width - paddingLeft - paddingRight;
-  const chartHeight = height - paddingTop - paddingBottom;
-  const max = Math.max(1, ...data.map((item) => item.value));
-  const gap = 12;
-  const barWidth = data.length > 0 ? (chartWidth - gap * (data.length - 1)) / data.length : 0;
-
-  return (
-    <View style={styles.barChartContainer}>
-      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-        <Line x1={paddingLeft} y1={paddingTop} x2={width - paddingRight} y2={paddingTop} stroke={COLORS.border} strokeWidth="1" />
-        <Line x1={paddingLeft} y1={paddingTop + chartHeight / 2} x2={width - paddingRight} y2={paddingTop + chartHeight / 2} stroke={COLORS.border} strokeWidth="1" />
-        <Line x1={paddingLeft} y1={paddingTop + chartHeight} x2={width - paddingRight} y2={paddingTop + chartHeight} stroke={COLORS.border} strokeWidth="1" />
-        {data.map((item, index) => {
-          const x = paddingLeft + index * (barWidth + gap);
-          const h = (item.value / max) * chartHeight;
-          const y = paddingTop + chartHeight - h;
-          return (
-            <G key={`${item.label}-${index}`}>
-              <Rect x={x} y={y} width={barWidth} height={Math.max(2, h)} rx="7" fill={item.color} />
-              <SvgText x={x + barWidth / 2} y={Math.max(12, y - 7)} textAnchor="middle" fontSize="10" fontWeight="700" fill={COLORS.text}>
-                {item.value}
-              </SvgText>
-              <SvgText x={x + barWidth / 2} y={height - 10} textAnchor="middle" fontSize="9" fill={COLORS.secondary}>
-                {item.label}
-              </SvgText>
-            </G>
-          );
-        })}
-      </Svg>
-    </View>
-  );
-}
-
-function HorizontalBars({ data }: { data: { label: string; value: number; color: string }[] }) {
-  const max = Math.max(1, ...data.map((item) => item.value));
-  return (
-    <View style={{ gap: 14 }}>
-      {data.map((item) => (
-        <View key={item.label}>
-          <View style={styles.horizontalBarHeader}>
-            <Text style={styles.horizontalBarLabel}>{item.label}</Text>
-            <Text style={styles.horizontalBarValue}>{item.value}</Text>
-          </View>
-          <View style={styles.horizontalTrack}>
-            <View style={[styles.horizontalFill, { width: `${(item.value / max) * 100}%`, backgroundColor: item.color }]} />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function EmptyState({ icon, title, description }: { icon: keyof typeof Ionicons.glyphMap; title: string; description: string }) {
-  return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name={icon} size={28} color={COLORS.primary} />
-      </View>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptyDescription}>{description}</Text>
-    </View>
-  );
-}
-
-function MoreRow({ icon, title, subtitle, onPress, danger = false }: { icon: keyof typeof Ionicons.glyphMap; title: string; subtitle: string; onPress: () => void; danger?: boolean }) {
-  return (
-    <TouchableOpacity style={styles.moreRow} onPress={onPress} activeOpacity={0.75}>
-      <View style={[styles.moreIcon, { backgroundColor: danger ? COLORS.dangerLight : COLORS.primaryLight }]}>
-        <Ionicons name={icon} size={22} color={danger ? COLORS.danger : COLORS.primary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.moreTitle, danger && { color: COLORS.danger }]}>{title}</Text>
-        <Text style={styles.moreSubtitle}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={COLORS.secondary} />
-    </TouchableOpacity>
-  );
-}
-
-function BottomTab({ icon, activeIcon, label, active, onPress }: { icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap; label: string; active: boolean; onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.bottomTab} onPress={onPress} activeOpacity={0.75}>
-      <Ionicons name={active ? activeIcon : icon} size={23} color={active ? COLORS.primary : COLORS.secondary} />
-      <Text style={[styles.bottomLabel, active && styles.bottomLabelActive]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
 
 function AppContent() {
   const [email, setEmail] = useState("");
@@ -548,7 +121,6 @@ function AppContent() {
   const [feeRenterPickerOpen, setFeeRenterPickerOpen] = useState(false);
 
   const [paymentActionId, setPaymentActionId] = useState("");
-  const [proofPreviewUrl, setProofPreviewUrl] = useState("");
 
   const selectedHostel = useMemo(() => hostels.find((item) => item.id === selectedHostelId), [hostels, selectedHostelId]);
   const activeRenters = useMemo(() => renters.filter((item) => String(item.status || "ACTIVE").toUpperCase() === "ACTIVE"), [renters]);
@@ -1033,255 +605,10 @@ function AppContent() {
     );
   }
 
-  function renderDashboard() {
-    const occupancyRate = dashboard.totalRooms > 0 ? Math.round((dashboard.occupiedRooms / dashboard.totalRooms) * 100) : 0;
-    const roomChart = [
-      { label: "Occupied", value: dashboard.occupiedRooms, color: COLORS.primary },
-      { label: "Available", value: dashboard.availableRooms, color: COLORS.success },
-    ];
-    const feeChart = [
-      { label: "Paid", value: dashboard.paidFees, color: COLORS.success },
-      { label: "Pending", value: dashboard.pendingFees, color: COLORS.primary },
-      { label: "Partial", value: dashboard.partiallyPaidFees, color: COLORS.warning },
-      { label: "Overdue", value: dashboard.overdueFees, color: COLORS.danger },
-    ];
-    const repairChart = [
-      { label: "Submitted", value: dashboard.submittedRepairs, color: COLORS.primary },
-      { label: "Progress", value: dashboard.inProgressRepairs, color: COLORS.warning },
-      { label: "Resolved", value: dashboard.resolvedRepairs, color: COLORS.success },
-      { label: "Cancelled", value: dashboard.cancelledRepairs, color: COLORS.secondary },
-    ];
 
-    return (
-      <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-        <Header title="Dashboard" subtitle="Live overview of your StayNexa operations." onRefresh={() => void refreshAll()} />
 
-        {selectedHostel ? (
-          <View style={styles.propertyCard}>
-            <View style={styles.propertyIcon}>
-              <Ionicons name="business-outline" size={22} color={COLORS.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.propertyLabel}>MANAGING HOSTEL</Text>
-              <Text style={styles.propertyName}>{selectedHostel.name}</Text>
-              <Text style={styles.propertyLocation}>
-                {selectedHostel.city || ""}{selectedHostel.city && selectedHostel.state ? ", " : ""}{selectedHostel.state || ""}
-              </Text>
-            </View>
-          </View>
-        ) : null}
 
-        <View style={styles.statsGrid}>
-          <StatCard title="Total Rooms" value={dashboard.totalRooms} icon="grid-outline" tone="blue" />
-          <StatCard title="Available Rooms" value={dashboard.availableRooms} icon="checkmark-circle-outline" tone="green" />
-          <StatCard title="Occupied Rooms" value={dashboard.occupiedRooms} icon="people-outline" tone="blue" />
-          <StatCard title="Active Renters" value={dashboard.activeRenters} icon="person-outline" tone="orange" />
-          <StatCard title="Outstanding Fees" value={money(dashboard.outstandingFees)} icon="wallet-outline" tone="red" />
-          <StatCard title="Payments" value={dashboard.totalPayments} icon="card-outline" tone="purple" />
-        </View>
 
-        <SectionTitle title="Room occupancy" />
-        <View style={styles.chartCard}>
-          <View style={styles.chartCardHeader}>
-            <View>
-              <Text style={styles.chartTitle}>Occupancy distribution</Text>
-              <Text style={styles.chartSubtitle}>Occupied rooms versus available rooms</Text>
-            </View>
-            <View style={styles.rateBadge}>
-              <Text style={styles.rateValue}>{occupancyRate}%</Text>
-              <Text style={styles.rateLabel}>occupied</Text>
-            </View>
-          </View>
-          <DonutChart data={roomChart} centerText={`${occupancyRate}%`} centerSub="occupied" />
-        </View>
-
-        <SectionTitle title="Fee status" />
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Current fee collection</Text>
-          <Text style={styles.chartSubtitle}>Live totals from the backend</Text>
-          <DonutChart data={feeChart} centerText={String(dashboard.totalFees)} centerSub="fees" />
-          <View style={styles.outstandingBox}>
-            <Text style={styles.outstandingLabel}>Outstanding amount</Text>
-            <Text style={styles.outstandingAmount}>{money(dashboard.outstandingFees)}</Text>
-          </View>
-        </View>
-
-        <SectionTitle title="Repair requests" />
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Repair status</Text>
-          <Text style={styles.chartSubtitle}>Current request workflow</Text>
-          <DonutChart data={repairChart} centerText={String(dashboard.totalRepairRequests)} centerSub="requests" />
-        </View>
-
-        <SectionTitle title="Payment proof review" />
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Proof status</Text>
-          <Text style={styles.chartSubtitle}>Payments are made outside StayNexa; this dashboard reviews submitted proof.</Text>
-          <DonutChart
-            data={[
-              { label: "Submitted", value: paymentProofStats.submitted, color: COLORS.warning },
-              { label: "Approved", value: paymentProofStats.approved, color: COLORS.success },
-              { label: "Rejected", value: paymentProofStats.rejected, color: COLORS.danger },
-            ]}
-            centerText={String(payments.length)}
-            centerSub="proofs"
-          />
-        </View>
-
-        <SectionTitle title="Approved payment activity" />
-        <View style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Approved payments by month</Text>
-          <Text style={styles.chartSubtitle}>Only approved payment proofs are included.</Text>
-          {monthlyPaymentBars.some((item) => item.value > 0) ? (
-            <BarChart
-              data={monthlyPaymentBars.map((item) => ({
-                label: item.label,
-                value: Math.round(item.value),
-                color: COLORS.primary,
-              }))}
-            />
-          ) : (
-            <EmptyState
-              icon="bar-chart-outline"
-              title="No approved payment activity"
-              description="Approved payment proofs will appear here."
-            />
-          )}
-        </View>
-
-        <SectionTitle title="Recent payment proofs" />
-        <View style={styles.chartCard}>
-          {recentPayments.length === 0 ? (
-            <Text style={styles.noDataText}>No payment proofs have been submitted.</Text>
-          ) : (
-            recentPayments.map((payment) => {
-              const status = String(
-                payment.status || "APPROVED",
-              ).toUpperCase();
-              const proofStatus =
-                status === "SUBMITTED" || status === "PENDING"
-                  ? "SUBMITTED"
-                  : status;
-              const statusStyle =
-                proofStatus === "APPROVED"
-                  ? { bg: COLORS.successLight, fg: COLORS.success }
-                  : proofStatus === "REJECTED"
-                    ? { bg: COLORS.dangerLight, fg: COLORS.danger }
-                    : { bg: COLORS.warningLight, fg: COLORS.warning };
-
-              return (
-                <View key={payment.id} style={styles.paymentRow}>
-                  <View style={styles.paymentIcon}>
-                    <Ionicons
-                      name="image-outline"
-                      size={19}
-                      color={COLORS.primary}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.paymentAmount}>
-                      {money(Number(payment.amount || 0))}
-                    </Text>
-                    <Text style={styles.paymentMeta}>
-                      {payment.paymentDate || payment.submittedAt || payment.createdAt || "-"}
-                    </Text>
-                  </View>
-                  <View style={[styles.paymentStatusBadge, { backgroundColor: statusStyle.bg }]}>
-                    <Text style={[styles.paymentStatusText, { color: statusStyle.fg }]}>
-                      {statusLabel(proofStatus)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
-
-        <View style={styles.liveUpdateCard}>
-          <Ionicons name="sync-outline" size={19} color={COLORS.primary} />
-          <Text style={styles.liveUpdateText}>Dashboard auto-refreshes every 4 seconds and also refreshes immediately after changes.</Text>
-        </View>
-      </ScrollView>
-    );
-  }
-
-  function renderHostels() {
-    return (
-      <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-        <Header title="Hostels" subtitle="Choose the hostel you want to manage." onRefresh={() => void refreshAll()} />
-        {hostels.length === 0 ? (
-          <EmptyState icon="business-outline" title="No hostels found" description="No hostels are assigned to this admin account." />
-        ) : (
-          hostels.map((hostel) => (
-            <TouchableOpacity key={hostel.id} style={[styles.hostelCard, hostel.id === selectedHostelId && styles.hostelSelected]} onPress={() => { setSelectedHostelId(hostel.id); setPage("dashboard"); }}>
-              <View style={styles.hostelIcon}><Ionicons name="business" size={22} color={COLORS.primary} /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.hostelName}>{hostel.name}</Text>
-                <Text style={styles.hostelLocation}>{hostel.address || "Address not set"}</Text>
-                <Text style={styles.hostelLocation}>{hostel.city || ""}{hostel.city && hostel.state ? ", " : ""}{hostel.state || ""}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.secondary} />
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
-    );
-  }
-
-  function renderRooms() {
-    return (
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-          <Header title="Rooms" subtitle={selectedHostel?.name || "Select a hostel"} onRefresh={() => void refreshAll()} />
-          <View style={styles.actionRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Room management</Text>
-              <Text style={styles.sectionSubtitle}>{rooms.length} room{rooms.length === 1 ? "" : "s"}</Text>
-            </View>
-            <TouchableOpacity style={styles.smallPrimaryButton} onPress={() => setShowRoomModal(true)}>
-              <Ionicons name="add" size={19} color="#FFFFFF" /><Text style={styles.smallPrimaryText}>Add Room</Text>
-            </TouchableOpacity>
-          </View>
-          {rooms.length === 0 ? (
-            <EmptyState icon="grid-outline" title="No rooms found" description="Add your first room to start managing occupancy." />
-          ) : (
-            rooms.map((room) => (
-              <View key={room.id} style={styles.itemCard}>
-                <View style={styles.itemIcon}><Ionicons name="home-outline" size={22} color={COLORS.primary} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemTitle}>Room {room.roomNumber}</Text>
-                  <Text style={styles.itemSubtitle}>{room.floor !== undefined ? `Floor ${room.floor}` : "Floor not set"}</Text>
-                </View>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => deleteRoom(room)}>
-                  <Ionicons name="trash-outline" size={19} color={COLORS.danger} />
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
-        </ScrollView>
-
-        <Modal visible={showRoomModal} transparent animationType="slide" onRequestClose={() => !roomSaving && setShowRoomModal(false)}>
-          <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView style={styles.modalKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={styles.modalCard}>
-                <View style={styles.modalHeader}>
-                  <View><Text style={styles.modalTitle}>Add Room</Text><Text style={styles.modalSubtitle}>{selectedHostel?.name || "Selected hostel"}</Text></View>
-                  <TouchableOpacity style={styles.closeButton} onPress={() => setShowRoomModal(false)}><Ionicons name="close" size={22} color={COLORS.secondary} /></TouchableOpacity>
-                </View>
-                <Text style={styles.label}>Room number</Text>
-                <TextInput style={styles.input} value={roomNumber} onChangeText={setRoomNumber} placeholder="Example: 101" placeholderTextColor="#94A3B8" />
-                <Text style={styles.label}>Floor</Text>
-                <TextInput style={styles.input} value={roomFloor} onChangeText={setRoomFloor} placeholder="Example: 1" placeholderTextColor="#94A3B8" />
-                <TouchableOpacity style={styles.primaryButton} disabled={roomSaving} onPress={() => void addRoom()}>
-                  {roomSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Add Room</Text><Ionicons name="checkmark" size={19} color="#FFFFFF" /></>}
-                </TouchableOpacity>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-      </View>
-    );
-  }
 
   async function openRenterDetails(renter: Renter) {
     setSelectedRenter(renter);
@@ -1400,795 +727,11 @@ function AppContent() {
     );
   }
 
-  function renderRenters() {
-    const selectedRoom = rooms.find((room) => room.id === renterRoomId);
-    const editSelectedRoom = rooms.find((room) => room.id === editRenterRoomId);
-    const normalizedSearch = renterSearch.trim().toLowerCase();
 
-    const filteredRenters = normalizedSearch
-      ? renters.filter((renter) => {
-          const roomNumber =
-            renter.room?.roomNumber ||
-            rooms.find((room) => room.id === renter.roomId)?.roomNumber ||
-            "";
 
-          const searchableText = [
-            getName(renter),
-            getEmail(renter),
-            renter.phone,
-            renter.user?.phone,
-            renter.guardianPhone,
-            roomNumber,
-            renter.roomId,
-            renter.joiningDate,
-            renter.status,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
 
-          return searchableText.includes(normalizedSearch);
-        })
-      : renters;
 
-    return (
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-          <Header title="Renters" subtitle={selectedHostel?.name || "Select a hostel"} onRefresh={() => void refreshAll()} />
-
-          <View style={styles.actionRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Renter management</Text>
-              <Text style={styles.sectionSubtitle}>
-                {activeRenters.length} active renter{activeRenters.length === 1 ? "" : "s"}
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.smallPrimaryButton} onPress={openRenterModal}>
-              <Ionicons name="person-add-outline" size={19} color="#FFFFFF" />
-              <Text style={styles.smallPrimaryText}>Add Renter</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.renterSearchBox}>
-            <Ionicons name="search-outline" size={20} color={COLORS.secondary} />
-            <TextInput
-              style={styles.renterSearchInput}
-              value={renterSearch}
-              onChangeText={setRenterSearch}
-              placeholder="Search name, email, phone, guardian or room"
-              placeholderTextColor="#94A3B8"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            {renterSearch.length > 0 ? (
-              <TouchableOpacity onPress={() => setRenterSearch("")}>
-                <Ionicons name="close-circle" size={20} color="#94A3B8" />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {renters.length === 0 ? (
-            <EmptyState icon="people-outline" title="No renters found" description="Add a renter account and assign a room." />
-          ) : filteredRenters.length === 0 ? (
-            <EmptyState icon="search-outline" title="No matching renters" description="Try a different name, phone number, email, guardian number or room number." />
-          ) : (
-            filteredRenters.map((renter) => {
-              const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
-              const roomNumber = renter.room?.roomNumber || rooms.find((room) => room.id === renter.roomId)?.roomNumber || "-";
-
-              return (
-                <Pressable key={renter.id} style={styles.renterCard} onPress={() => void openRenterDetails(renter)}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{getName(renter).charAt(0).toUpperCase()}</Text>
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.itemTitle}>{getName(renter)}</Text>
-                    {getEmail(renter) ? <Text style={styles.itemSubtitle}>{getEmail(renter)}</Text> : null}
-                    {renter.phone || renter.user?.phone ? (
-                      <Text style={styles.itemSubtitle}>Phone: {renter.phone || renter.user?.phone}</Text>
-                    ) : null}
-                    {renter.guardianPhone ? (
-                      <Text style={styles.itemSubtitle}>Guardian: {renter.guardianPhone}</Text>
-                    ) : null}
-                    <Text style={styles.roomTag}>Room {roomNumber}</Text>
-                  </View>
-
-                  <View style={[styles.statusBadge, { backgroundColor: active ? COLORS.successLight : COLORS.dangerLight }]}>
-                    <Text style={[styles.statusBadgeText, { color: active ? COLORS.success : COLORS.danger }]}>
-                      {active ? "ACTIVE" : String(renter.status || "INACTIVE")}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })
-          )}
-        </ScrollView>
-
-        <Modal
-          visible={showRenterDetailsModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowRenterDetailsModal(false)}
-        >
-          <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView
-              style={styles.modalKeyboard}
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-            >
-              <View style={styles.modalCardLarge}>
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 8 }}
-                >
-                  <View style={styles.modalHeader}>
-                    <View style={{ flex: 1, paddingRight: 12 }}>
-                      <Text style={styles.modalTitle}>Renter Details</Text>
-                      <Text style={styles.modalSubtitle}>Complete renter account, room and financial information.</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.closeButton}
-                      onPress={() => setShowRenterDetailsModal(false)}
-                    >
-                      <Ionicons name="close" size={22} color={COLORS.secondary} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {renterDetailsLoading ? (
-                    <View style={styles.renterDetailsLoading}>
-                      <ActivityIndicator size="small" color={COLORS.primary} />
-                      <Text style={styles.itemSubtitle}>Loading latest renter details…</Text>
-                    </View>
-                  ) : null}
-
-                  {selectedRenter ? (
-                    <>
-                      <View style={styles.renterDetailsHero}>
-                        <View style={styles.avatarLarge}>
-                          <Text style={styles.avatarLargeText}>
-                            {getName(selectedRenter).charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.renterDetailsName}>{getName(selectedRenter)}</Text>
-                          <Text style={styles.itemSubtitle}>
-                            {getEmail(selectedRenter) || "No email"}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            {
-                              backgroundColor:
-                                String(selectedRenter.status || "ACTIVE").toUpperCase() === "ACTIVE"
-                                  ? COLORS.successLight
-                                  : COLORS.dangerLight,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.statusBadgeText,
-                              {
-                                color:
-                                  String(selectedRenter.status || "ACTIVE").toUpperCase() === "ACTIVE"
-                                    ? COLORS.success
-                                    : COLORS.danger,
-                              },
-                            ]}
-                          >
-                            {String(selectedRenter.status || "ACTIVE").toUpperCase()}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Text style={styles.renterDetailSectionTitle}>Contact</Text>
-                      <View style={styles.renterDetailsGrid}>
-                        <RenterDetail label="First name" value={selectedRenter.user?.firstName || "-"} />
-                        <RenterDetail label="Last name" value={selectedRenter.user?.lastName || "-"} />
-                        <RenterDetail label="Email" value={getEmail(selectedRenter) || "-"} />
-                        <RenterDetail label="Phone" value={selectedRenter.phone || selectedRenter.user?.phone || "-"} />
-                        <RenterDetail label="Guardian number" value={selectedRenter.guardianPhone || "-"} />
-                        <RenterDetail label="Gender" value={selectedRenter.user?.gender || "-"} />
-                        <RenterDetail label="Date of birth" value={selectedRenter.user?.dateOfBirth || "-"} />
-                        <RenterDetail label="Emergency contact" value={selectedRenter.user?.emergencyContactName || "-"} />
-                        <RenterDetail label="Emergency phone" value={selectedRenter.user?.emergencyContactPhone || "-"} />
-                      </View>
-
-                      <Text style={styles.renterDetailSectionTitle}>Address</Text>
-                      <View style={styles.renterDetailsGrid}>
-                        <RenterDetail label="Address" value={selectedRenter.user?.address || "-"} />
-                        <RenterDetail label="City" value={selectedRenter.user?.city || "-"} />
-                        <RenterDetail label="State" value={selectedRenter.user?.state || "-"} />
-                        <RenterDetail label="Pincode" value={selectedRenter.user?.pincode || "-"} />
-                      </View>
-
-                      <Text style={styles.renterDetailSectionTitle}>Stay & Financial</Text>
-                      <View style={styles.renterDetailsGrid}>
-                        <RenterDetail
-                          label="Room"
-                          value={
-                            selectedRenter.room?.roomNumber
-                              ? `Room ${selectedRenter.room.roomNumber}`
-                              : "-"
-                          }
-                        />
-                        <RenterDetail
-                          label="Floor"
-                          value={selectedRenter.room?.floor !== null && selectedRenter.room?.floor !== undefined ? String(selectedRenter.room.floor) : "-"}
-                        />
-                        <RenterDetail label="Joining date" value={selectedRenter.joiningDate || "-"} />
-                        <RenterDetail label="Monthly fee" value={money(Number(selectedRenter.monthlyFee || 0))} />
-                        <RenterDetail label="Security deposit" value={money(Number(selectedRenter.securityDeposit || 0))} />
-                        <RenterDetail label="Renter ID" value={selectedRenter.id} />
-                        <RenterDetail label="User ID" value={selectedRenter.user?.id || "-"} />
-                      </View>
-
-                      <View style={styles.renterDetailsActions}>
-                        <TouchableOpacity
-                          style={[styles.editButton, { flex: 1, justifyContent: "center", paddingVertical: 12 }]}
-                          onPress={() => openEditRenter(selectedRenter)}
-                        >
-                          <Ionicons name="create-outline" size={18} color={COLORS.primary} />
-                          <Text style={styles.editButtonText}>Edit renter</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.removeButton, { flex: 1, justifyContent: "center", paddingVertical: 12 }]}
-                          onPress={() => removeRenter(selectedRenter)}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
-                          <Text style={styles.removeButtonText}>Delete renter</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  ) : (
-                    <EmptyState
-                      icon="person-outline"
-                      title="Renter details unavailable"
-                      description="Close this window and try again."
-                    />
-                  )}
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-
-        <Modal visible={showRenterModal} transparent animationType="slide" onRequestClose={() => !renterSaving && setShowRenterModal(false)}>
-          <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView style={styles.modalKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={styles.modalCardLarge}>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                  <View style={styles.modalHeader}>
-                    <View>
-                      <Text style={styles.modalTitle}>Add Renter</Text>
-                      <Text style={styles.modalSubtitle}>Create login, assign a room and save renter details.</Text>
-                    </View>
-                    <TouchableOpacity style={styles.closeButton} onPress={() => setShowRenterModal(false)}>
-                      <Ionicons name="close" size={22} color={COLORS.secondary} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.label}>First name *</Text>
-                  <TextInput style={styles.input} value={firstName} onChangeText={setFirstName} placeholder="First name" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Last name</Text>
-                  <TextInput style={styles.input} value={lastName} onChangeText={setLastName} placeholder="Last name" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Email *</Text>
-                  <TextInput style={styles.input} value={renterEmail} onChangeText={setRenterEmail} placeholder="renter@example.com" placeholderTextColor="#94A3B8" keyboardType="email-address" autoCapitalize="none" />
-
-                  <Text style={styles.label}>Phone *</Text>
-                  <TextInput style={styles.input} value={renterPhone} onChangeText={setRenterPhone} placeholder="Renter phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
-
-                  <Text style={styles.label}>Guardian number *</Text>
-                  <TextInput style={styles.input} value={guardianPhone} onChangeText={setGuardianPhone} placeholder="Guardian phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
-
-                  <Text style={styles.label}>Password *</Text>
-                  <View style={styles.inputWithIcon}>
-                    <TextInput style={styles.inputWithIconText} value={renterPassword} onChangeText={setRenterPassword} placeholder="Minimum 6 characters" placeholderTextColor="#94A3B8" secureTextEntry={!showRenterPassword} autoCapitalize="none" />
-                    <TouchableOpacity onPress={() => setShowRenterPassword((v) => !v)}>
-                      <Ionicons name={showRenterPassword ? "eye-off-outline" : "eye-outline"} size={21} color={COLORS.secondary} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.label}>Room *</Text>
-                  <TouchableOpacity style={styles.selector} onPress={() => setRenterRoomPickerOpen(true)}>
-                    <Text style={[styles.selectorText, !selectedRoom && { color: "#94A3B8" }]}>
-                      {selectedRoom ? `Room ${selectedRoom.roomNumber}` : "Select active room"}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-
-                  <Text style={styles.label}>Joining date *</Text>
-                  <TextInput style={styles.input} value={joiningDate} onChangeText={setJoiningDate} placeholder="YYYY-MM-DD" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Monthly fee *</Text>
-                  <TextInput style={styles.input} value={monthlyFee} onChangeText={setMonthlyFee} placeholder="Example: 8000" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
-
-                  <Text style={styles.label}>Security deposit</Text>
-                  <TextInput style={styles.input} value={securityDeposit} onChangeText={setSecurityDeposit} placeholder="Example: 8000" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
-
-                  <TouchableOpacity style={styles.primaryButton} disabled={renterSaving} onPress={() => void addRenter()}>
-                    {renterSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Create Renter</Text><Ionicons name="checkmark" size={19} color="#FFFFFF" /></>}
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-
-        <Modal visible={renterRoomPickerOpen} transparent animationType="slide" onRequestClose={() => setRenterRoomPickerOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={styles.pickerCard}>
-              <View style={styles.modalHeader}>
-                <View><Text style={styles.modalTitle}>Select room</Text><Text style={styles.modalSubtitle}>Active rooms in this hostel</Text></View>
-                <TouchableOpacity style={styles.closeButton} onPress={() => setRenterRoomPickerOpen(false)}><Ionicons name="close" size={22} color={COLORS.secondary} /></TouchableOpacity>
-              </View>
-              {activeRooms.length === 0 ? (
-                <EmptyState icon="grid-outline" title="No active rooms" description="Add an active room before creating a renter." />
-              ) : (
-                activeRooms.map((room) => {
-                  const occupied = activeRenters.some((renter) => renter.roomId === room.id);
-                  return (
-                    <Pressable
-                      key={room.id}
-                      disabled={occupied}
-                      style={[styles.pickerRow, room.id === renterRoomId && styles.pickerSelected, occupied && { opacity: 0.45 }]}
-                      onPress={() => { setRenterRoomId(room.id); setRenterRoomPickerOpen(false); }}
-                    >
-                      <View style={styles.pickerIcon}><Ionicons name="home-outline" size={20} color={COLORS.primary} /></View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.itemTitle}>Room {room.roomNumber}</Text>
-                        <Text style={styles.itemSubtitle}>{occupied ? "Occupied" : room.floor !== undefined ? `Floor ${room.floor}` : "Floor not set"}</Text>
-                      </View>
-                      {room.id === renterRoomId ? <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} /> : null}
-                    </Pressable>
-                  );
-                })
-              )}
-            </View>
-          </View>
-        </Modal>
-
-        <Modal visible={showEditRenterModal} transparent animationType="slide" onRequestClose={() => !editRenterSaving && setShowEditRenterModal(false)}>
-          <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView style={styles.modalKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={styles.modalCardLarge}>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                  <View style={styles.modalHeader}>
-                    <View>
-                      <Text style={styles.modalTitle}>Edit Renter</Text>
-                      <Text style={styles.modalSubtitle}>Update assignment and renter details.</Text>
-                    </View>
-                    <TouchableOpacity style={styles.closeButton} onPress={() => setShowEditRenterModal(false)}>
-                      <Ionicons name="close" size={22} color={COLORS.secondary} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.label}>Room *</Text>
-                  <TouchableOpacity style={styles.selector} onPress={() => setEditRenterRoomPickerOpen(true)}>
-                    <Text style={[styles.selectorText, !editSelectedRoom && { color: "#94A3B8" }]}>
-                      {editSelectedRoom ? `Room ${editSelectedRoom.roomNumber}` : "Select active room"}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-
-                  <Text style={styles.label}>Guardian number *</Text>
-                  <TextInput style={styles.input} value={editGuardianPhone} onChangeText={setEditGuardianPhone} placeholder="Guardian phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
-
-                  <Text style={styles.label}>Joining date *</Text>
-                  <TextInput style={styles.input} value={editJoiningDate} onChangeText={setEditJoiningDate} placeholder="YYYY-MM-DD" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Monthly fee *</Text>
-                  <TextInput style={styles.input} value={editMonthlyFee} onChangeText={setEditMonthlyFee} placeholder="Monthly fee" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
-
-                  <Text style={styles.label}>Security deposit</Text>
-                  <TextInput style={styles.input} value={editSecurityDeposit} onChangeText={setEditSecurityDeposit} placeholder="Security deposit" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
-
-                  <Text style={styles.label}>Status</Text>
-                  <View style={styles.statusSelectorRow}>
-                    {["ACTIVE", "INACTIVE", "LEFT"].map((status) => (
-                      <TouchableOpacity key={status} style={[styles.statusSelectorButton, editRenterStatus === status && styles.statusSelectorButtonActive]} onPress={() => setEditRenterStatus(status)}>
-                        <Text style={[styles.statusSelectorText, editRenterStatus === status && styles.statusSelectorTextActive]}>{status}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <TouchableOpacity style={styles.primaryButton} disabled={editRenterSaving} onPress={() => void updateRenter()}>
-                    {editRenterSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Save Changes</Text><Ionicons name="checkmark" size={19} color="#FFFFFF" /></>}
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-
-        <Modal visible={editRenterRoomPickerOpen} transparent animationType="slide" onRequestClose={() => setEditRenterRoomPickerOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={styles.pickerCard}>
-              <View style={styles.modalHeader}>
-                <View>
-                  <Text style={styles.modalTitle}>Select room</Text>
-                  <Text style={styles.modalSubtitle}>Only unoccupied active rooms can be assigned.</Text>
-                </View>
-                <TouchableOpacity style={styles.closeButton} onPress={() => setEditRenterRoomPickerOpen(false)}>
-                  <Ionicons name="close" size={22} color={COLORS.secondary} />
-                </TouchableOpacity>
-              </View>
-              {activeRooms.length === 0 ? (
-                <EmptyState icon="grid-outline" title="No active rooms" description="There are no active rooms available." />
-              ) : (
-                activeRooms.map((room) => {
-                  const occupiedByAnother = activeRenters.some((renter) => renter.id !== editingRenterId && renter.roomId === room.id);
-                  const selected = room.id === editRenterRoomId;
-                  return (
-                    <Pressable
-                      key={room.id}
-                      disabled={occupiedByAnother}
-                      style={[styles.pickerRow, selected && styles.pickerSelected, occupiedByAnother && { opacity: 0.45 }]}
-                      onPress={() => {
-                        setEditRenterRoomId(room.id);
-                        setEditRenterRoomPickerOpen(false);
-                      }}
-                    >
-                      <View style={styles.pickerIcon}>
-                        <Ionicons name="home-outline" size={20} color={COLORS.primary} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.itemTitle}>Room {room.roomNumber}</Text>
-                        <Text style={styles.itemSubtitle}>
-                          {occupiedByAnother ? "Occupied" : room.floor !== undefined ? `Floor ${room.floor}` : "Floor not set"}
-                        </Text>
-                      </View>
-                      {selected ? <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} /> : null}
-                    </Pressable>
-                  );
-                })
-              )}
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  }
-
-  function renderFees() {
-    const feeRenter = renters.find((renter) => renter.id === feeRenterId);
-    return (
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-          <Header title="Fees" subtitle={selectedHostel?.name || "Select a hostel"} onRefresh={() => void refreshAll()} />
-          <View style={styles.actionRow}>
-            <View><Text style={styles.sectionTitle}>Fee records</Text><Text style={styles.sectionSubtitle}>{fees.length} fee{fees.length === 1 ? "" : "s"}</Text></View>
-            <TouchableOpacity style={styles.smallPrimaryButton} onPress={openFeeModal}><Ionicons name="add" size={19} color="#FFFFFF" /><Text style={styles.smallPrimaryText}>Add Fee</Text></TouchableOpacity>
-          </View>
-          {fees.length === 0 ? (
-            <EmptyState icon="receipt-outline" title="No fees found" description="Create the first fee for an active renter." />
-          ) : (
-            fees.map((fee) => {
-              const renter = renters.find((item) => item.id === fee.renterId);
-              const paid = Number(fee.paidAmount || 0);
-              const remaining = Math.max(Number(fee.amount || 0) - paid, 0);
-              const status = String(fee.status || "PENDING").toUpperCase();
-              const color = status === "PAID" ? COLORS.success : status === "OVERDUE" ? COLORS.danger : status === "PARTIALLY_PAID" ? COLORS.warning : COLORS.primary;
-              return (
-                <View key={fee.id} style={styles.feeCard}>
-                  <View style={styles.feeTopRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemTitle}>{renter ? getName(renter) : "Renter"}</Text>
-                      <Text style={styles.itemSubtitle}>{fee.month} · Due {fee.dueDate}</Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: color === COLORS.success ? COLORS.successLight : color === COLORS.danger ? COLORS.dangerLight : color === COLORS.warning ? COLORS.warningLight : COLORS.primaryLight }]}>
-                      <Text style={[styles.statusBadgeText, { color }]}>{statusLabel(status)}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.feeDetailsRow}>
-                    <FeeDetail label="Amount" value={money(fee.amount)} />
-                    <FeeDetail label="Paid" value={money(paid)} />
-                    <FeeDetail label="Remaining" value={money(remaining)} />
-                  </View>
-                  {fee.description ? <Text style={styles.feeDescription}>{fee.description}</Text> : null}
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-
-        <Modal visible={showFeeModal} transparent animationType="slide" onRequestClose={() => !feeSaving && setShowFeeModal(false)}>
-          <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView style={styles.modalKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-              <View style={styles.modalCardLarge}>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                  <View style={styles.modalHeader}>
-                    <View><Text style={styles.modalTitle}>Add Fee</Text><Text style={styles.modalSubtitle}>Payment is intentionally not recorded here; this screen manages fee records only.</Text></View>
-                    <TouchableOpacity style={styles.closeButton} onPress={() => setShowFeeModal(false)}><Ionicons name="close" size={22} color={COLORS.secondary} /></TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.label}>Active renter *</Text>
-                  <TouchableOpacity style={styles.selector} onPress={() => setFeeRenterPickerOpen(true)}>
-                    <Text style={[styles.selectorText, !feeRenter && { color: "#94A3B8" }]}>{feeRenter ? getName(feeRenter) : "Select active renter"}</Text>
-                    <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-
-                  <Text style={styles.label}>Month *</Text>
-                  <TextInput style={styles.input} value={feeMonth} onChangeText={setFeeMonth} placeholder="YYYY-MM" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Amount *</Text>
-                  <TextInput style={styles.input} value={feeAmount} onChangeText={setFeeAmount} placeholder="Example: 8000" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
-
-                  <Text style={styles.label}>Due date *</Text>
-                  <TextInput style={styles.input} value={feeDueDate} onChangeText={setFeeDueDate} placeholder="YYYY-MM-DD" placeholderTextColor="#94A3B8" />
-
-                  <Text style={styles.label}>Description</Text>
-                  <TextInput style={[styles.input, { minHeight: 90, textAlignVertical: "top" }]} value={feeDescription} onChangeText={setFeeDescription} placeholder="Optional description" placeholderTextColor="#94A3B8" multiline />
-
-                  <TouchableOpacity style={styles.primaryButton} disabled={feeSaving} onPress={() => void addFee()}>
-                    {feeSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Create Fee</Text><Ionicons name="checkmark" size={19} color="#FFFFFF" /></>}
-                  </TouchableOpacity>
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-
-        <Modal visible={feeRenterPickerOpen} transparent animationType="slide" onRequestClose={() => setFeeRenterPickerOpen(false)}>
-          <View style={styles.modalBackdrop}>
-            <View style={styles.pickerCard}>
-              <View style={styles.modalHeader}>
-                <View><Text style={styles.modalTitle}>Select renter</Text><Text style={styles.modalSubtitle}>Only active renters can receive a new fee.</Text></View>
-                <TouchableOpacity style={styles.closeButton} onPress={() => setFeeRenterPickerOpen(false)}><Ionicons name="close" size={22} color={COLORS.secondary} /></TouchableOpacity>
-              </View>
-              {activeRenters.length === 0 ? (
-                <EmptyState icon="people-outline" title="No active renters" description="Add a renter before creating a fee." />
-              ) : (
-                activeRenters.map((renter) => (
-                  <Pressable key={renter.id} style={[styles.pickerRow, renter.id === feeRenterId && styles.pickerSelected]} onPress={() => { setFeeRenterId(renter.id); setFeeRenterPickerOpen(false); }}>
-                    <View style={styles.pickerIcon}><Ionicons name="person-outline" size={20} color={COLORS.primary} /></View>
-                    <View style={{ flex: 1 }}><Text style={styles.itemTitle}>{getName(renter)}</Text><Text style={styles.itemSubtitle}>{getEmail(renter) || "No email"}</Text></View>
-                    {renter.id === feeRenterId ? <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} /> : null}
-                  </Pressable>
-                ))
-              )}
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  }
-
-  function renderPayments() {
-    return (
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={styles.screenContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <Header
-            title="Payment Proofs"
-            subtitle={
-              selectedHostel?.name ||
-              "Review payment screenshots"
-            }
-            onRefresh={() => void refreshAll()}
-          />
-
-          <View style={styles.paymentNotice}>
-            <Ionicons
-              name="information-circle-outline"
-              size={21}
-              color={COLORS.primary}
-            />
-            <Text style={styles.paymentNoticeText}>
-              Payments are completed outside StayNexa. Renters submit a payment screenshot as proof. Admins review the screenshot and approve or reject the proof.
-            </Text>
-          </View>
-
-          {payments.length === 0 ? (
-            <EmptyState
-              icon="image-outline"
-              title="No payment proofs"
-              description="Submitted payment screenshots will appear here for admin review."
-            />
-          ) : (
-            payments.map((payment) => {
-              const status = String(
-                payment.status || "APPROVED",
-              ).toUpperCase();
-              const displayStatus =
-                status === "PENDING"
-                  ? "SUBMITTED"
-                  : status;
-              const linkedRenter = renters.find(
-                (renter) =>
-                  renter.id === payment.renterId,
-              );
-
-              const statusStyle =
-                displayStatus === "APPROVED"
-                  ? { bg: COLORS.successLight, fg: COLORS.success }
-                  : displayStatus === "REJECTED"
-                    ? { bg: COLORS.dangerLight, fg: COLORS.danger }
-                    : { bg: COLORS.warningLight, fg: COLORS.warning };
-
-              return (
-                <View key={payment.id} style={styles.paymentReviewCard}>
-                  <View style={styles.paymentReviewTop}>
-                    <View style={styles.paymentReviewIcon}>
-                      <Ionicons
-                        name="receipt-outline"
-                        size={21}
-                        color={COLORS.primary}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.paymentReviewAmount}>
-                        {money(Number(payment.amount || 0))}
-                      </Text>
-                      <Text style={styles.paymentReviewRenter}>
-                        {linkedRenter ? getName(linkedRenter) : "Renter"}
-                      </Text>
-                    </View>
-                    <View style={[styles.paymentStatusBadge, { backgroundColor: statusStyle.bg }]}>
-                      <Text style={[styles.paymentStatusText, { color: statusStyle.fg }]}>
-                        {statusLabel(displayStatus)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.paymentReviewMetaGrid}>
-                    <FeeDetail
-                      label="Payment date"
-                      value={payment.paymentDate || "-"}
-                    />
-                    <FeeDetail
-                      label="Submitted"
-                      value={payment.submittedAt || payment.createdAt || "-"}
-                    />
-                    <FeeDetail
-                      label="Reference"
-                      value={payment.reference || "-"}
-                    />
-                    <FeeDetail
-                      label="Fee"
-                      value={payment.feeId || "-"}
-                    />
-                  </View>
-
-                  {payment.proofUrl ? (
-                    <TouchableOpacity
-                      style={styles.proofImageContainer}
-                      onPress={() => setProofPreviewUrl(payment.proofUrl || "")}
-                      activeOpacity={0.85}
-                    >
-                      <Image
-                        source={{ uri: payment.proofUrl }}
-                        style={styles.proofImage}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.proofOverlay}>
-                        <Ionicons
-                          name="expand-outline"
-                          size={22}
-                          color="#FFFFFF"
-                        />
-                        <Text style={styles.proofOverlayText}>
-                          View proof
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.noProofBox}>
-                      <Ionicons
-                        name="image-outline"
-                        size={19}
-                        color={COLORS.secondary}
-                      />
-                      <Text style={styles.noProofText}>
-                        No payment proof image attached.
-                      </Text>
-                    </View>
-                  )}
-
-                  {payment.reviewNote ? (
-                    <View style={styles.reviewNoteBox}>
-                      <Text style={styles.reviewNoteLabel}>Admin note</Text>
-                      <Text style={styles.reviewNoteText}>
-                        {payment.reviewNote}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {displayStatus === "SUBMITTED" ? (
-                    <View style={styles.reviewActions}>
-                      <TouchableOpacity
-                        style={[styles.reviewButton, styles.rejectButton]}
-                        disabled={paymentActionId === payment.id}
-                        onPress={() => void reviewPayment(payment.id, "REJECTED")}
-                      >
-                        {paymentActionId === payment.id ? (
-                          <ActivityIndicator color={COLORS.danger} />
-                        ) : (
-                          <>
-                            <Ionicons
-                              name="close-circle-outline"
-                              size={18}
-                              color={COLORS.danger}
-                            />
-                            <Text style={styles.rejectButtonText}>Reject</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.reviewButton, styles.approveButton]}
-                        disabled={paymentActionId === payment.id}
-                        onPress={() => void reviewPayment(payment.id, "APPROVED")}
-                      >
-                        {paymentActionId === payment.id ? (
-                          <ActivityIndicator color="#FFFFFF" />
-                        ) : (
-                          <>
-                            <Ionicons
-                              name="checkmark-circle-outline"
-                              size={18}
-                              color="#FFFFFF"
-                            />
-                            <Text style={styles.approveButtonText}>Approve</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-
-        <Modal
-          visible={Boolean(proofPreviewUrl)}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setProofPreviewUrl("")}
-        >
-          <View style={styles.proofViewerBackdrop}>
-            <TouchableOpacity
-              style={styles.proofViewerClose}
-              onPress={() => setProofPreviewUrl("")}
-            >
-              <Ionicons
-                name="close"
-                size={28}
-                color="#FFFFFF"
-              />
-            </TouchableOpacity>
-            {proofPreviewUrl ? (
-              <Image
-                source={{ uri: proofPreviewUrl }}
-                style={styles.proofViewerImage}
-                resizeMode="contain"
-              />
-            ) : null}
-          </View>
-        </Modal>
-      </View>
-    );
-  }
-
-  function renderMore() {
-    return (
-      <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
-        <Header title="More" subtitle="Additional StayNexa modules." onRefresh={() => void refreshAll()} />
-        <MoreRow icon="receipt-outline" title="Fees" subtitle="Create and manage fee records" onPress={() => setPage("fees")} />
-        <MoreRow icon="card-outline" title="Payments" subtitle="Read-only payment history from the backend" onPress={() => setPage("payments")} />
-        <MoreRow icon="construct-outline" title="Repairs" subtitle="Repair information is included on the dashboard" onPress={() => setPage("dashboard")} />
-        <MoreRow icon="notifications-outline" title="Notifications" subtitle="Notification center will be connected next" onPress={() => Alert.alert("Notifications", "Notification center is the next module.")} />
-        <MoreRow icon="log-out-outline" title="Logout" subtitle="Sign out from StayNexa" danger onPress={() => Alert.alert("Logout", "Are you sure you want to logout?", [{ text: "Cancel", style: "cancel" }, { text: "Logout", style: "destructive", onPress: () => void logout() }])} />
-      </ScrollView>
-    );
-  }
+  // Payments and More screens are now extracted to PaymentsScreen and MoreScreen components
 
   if (!token) {
     return (
@@ -2231,13 +774,156 @@ function AppContent() {
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.appContainer}>
         <View style={{ flex: 1 }}>
-          {page === "dashboard" && renderDashboard()}
-          {page === "hostels" && renderHostels()}
-          {page === "rooms" && renderRooms()}
-          {page === "renters" && renderRenters()}
-          {page === "fees" && renderFees()}
-          {page === "payments" && renderPayments()}
-          {page === "more" && renderMore()}
+          {page === "dashboard" && (
+            <DashboardScreen
+              dashboard={dashboard}
+              selectedHostel={selectedHostel}
+              payments={payments}
+              paymentProofStats={paymentProofStats}
+              recentPayments={recentPayments}
+              monthlyPaymentBars={monthlyPaymentBars}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "hostels" && (
+            <HostelsScreen
+              hostels={hostels}
+              selectedHostelId={selectedHostelId}
+              onSelectHostel={(id: string) => {
+                setSelectedHostelId(id);
+                setPage("dashboard");
+              }}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "rooms" && (
+            <RoomsScreen
+              rooms={rooms}
+              selectedHostel={selectedHostel}
+              showRoomModal={showRoomModal}
+              setShowRoomModal={setShowRoomModal}
+              roomNumber={roomNumber}
+              setRoomNumber={setRoomNumber}
+              roomFloor={roomFloor}
+              setRoomFloor={setRoomFloor}
+              roomSaving={roomSaving}
+              onAddRoom={() => void addRoom()}
+              onDeleteRoom={(room) => deleteRoom(room)}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "renters" && (
+            <RentersScreen
+              renters={renters}
+              activeRenters={activeRenters}
+              rooms={rooms}
+              activeRooms={activeRooms}
+              selectedHostel={selectedHostel}
+              renterSearch={renterSearch}
+              setRenterSearch={setRenterSearch}
+              showRenterDetailsModal={showRenterDetailsModal}
+              setShowRenterDetailsModal={setShowRenterDetailsModal}
+              selectedRenter={selectedRenter}
+              renterDetailsLoading={renterDetailsLoading}
+              onOpenRenterDetails={(renter) => void openRenterDetails(renter)}
+              onOpenEditRenter={(renter) => openEditRenter(renter)}
+              onRemoveRenter={(renter) => removeRenter(renter)}
+              showRenterModal={showRenterModal}
+              setShowRenterModal={setShowRenterModal}
+              onOpenRenterModal={openRenterModal}
+              firstName={firstName}
+              setFirstName={setFirstName}
+              lastName={lastName}
+              setLastName={setLastName}
+              renterEmail={renterEmail}
+              setRenterEmail={setRenterEmail}
+              renterPhone={renterPhone}
+              setRenterPhone={setRenterPhone}
+              guardianPhone={guardianPhone}
+              setGuardianPhone={setGuardianPhone}
+              renterPassword={renterPassword}
+              setRenterPassword={setRenterPassword}
+              showRenterPassword={showRenterPassword}
+              setShowRenterPassword={setShowRenterPassword}
+              renterRoomId={renterRoomId}
+              setRenterRoomId={setRenterRoomId}
+              joiningDate={joiningDate}
+              setJoiningDate={setJoiningDate}
+              monthlyFee={monthlyFee}
+              setMonthlyFee={setMonthlyFee}
+              securityDeposit={securityDeposit}
+              setSecurityDeposit={setSecurityDeposit}
+              renterSaving={renterSaving}
+              onAddRenter={() => void addRenter()}
+              renterRoomPickerOpen={renterRoomPickerOpen}
+              setRenterRoomPickerOpen={setRenterRoomPickerOpen}
+              showEditRenterModal={showEditRenterModal}
+              setShowEditRenterModal={setShowEditRenterModal}
+              editingRenterId={editingRenterId}
+              editRenterRoomId={editRenterRoomId}
+              setEditRenterRoomId={setEditRenterRoomId}
+              editGuardianPhone={editGuardianPhone}
+              setEditGuardianPhone={setEditGuardianPhone}
+              editJoiningDate={editJoiningDate}
+              setEditJoiningDate={setEditJoiningDate}
+              editMonthlyFee={editMonthlyFee}
+              setEditMonthlyFee={setEditMonthlyFee}
+              editSecurityDeposit={editSecurityDeposit}
+              setEditSecurityDeposit={setEditSecurityDeposit}
+              editRenterStatus={editRenterStatus}
+              setEditRenterStatus={setEditRenterStatus}
+              editRenterSaving={editRenterSaving}
+              onUpdateRenter={() => void updateRenter()}
+              editRenterRoomPickerOpen={editRenterRoomPickerOpen}
+              setEditRenterRoomPickerOpen={setEditRenterRoomPickerOpen}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "fees" && (
+            <FeesScreen
+              fees={fees}
+              renters={renters}
+              activeRenters={activeRenters}
+              selectedHostel={selectedHostel}
+              showFeeModal={showFeeModal}
+              setShowFeeModal={setShowFeeModal}
+              feeRenterId={feeRenterId}
+              setFeeRenterId={setFeeRenterId}
+              feeMonth={feeMonth}
+              setFeeMonth={setFeeMonth}
+              feeAmount={feeAmount}
+              setFeeAmount={setFeeAmount}
+              feeDueDate={feeDueDate}
+              setFeeDueDate={setFeeDueDate}
+              feeDescription={feeDescription}
+              setFeeDescription={setFeeDescription}
+              feeSaving={feeSaving}
+              feeRenterPickerOpen={feeRenterPickerOpen}
+              setFeeRenterPickerOpen={setFeeRenterPickerOpen}
+              onOpenFeeModal={() => openFeeModal()}
+              onAddFee={() => void addFee()}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "payments" && (
+            <PaymentsScreen
+              payments={payments}
+              renters={renters}
+              selectedHostel={selectedHostel}
+              paymentActionId={paymentActionId}
+              onReviewPayment={(id, status) => void reviewPayment(id, status)}
+              onRefresh={() => void refreshAll()}
+            />
+          )}
+          {page === "more" && (
+            <MoreScreen
+              onNavigateToFees={() => setPage("fees")}
+              onNavigateToPayments={() => setPage("payments")}
+              onNavigateToDashboard={() => setPage("dashboard")}
+              onRefresh={() => void refreshAll()}
+              onLogout={() => void logout()}
+            />
+          )}
         </View>
         <View style={styles.bottomNav}>
           <BottomTab icon="home-outline" activeIcon="home" label="Home" active={page === "dashboard"} onPress={() => setPage("dashboard")} />
@@ -2252,23 +938,7 @@ function AppContent() {
   );
 }
 
-function RenterDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <View>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value || "-"}</Text>
-    </View>
-  );
-}
 
-function FeeDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={{ flex: 1 }}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
