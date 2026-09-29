@@ -46,6 +46,7 @@ interface RenterPortalScreenProps {
     description: string;
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   }) => Promise<void>;
+  scheduleLocalNotification?: (title: string, body: string, data?: Record<string, unknown>) => Promise<void>;
 }
 
 export function RenterPortalScreen({

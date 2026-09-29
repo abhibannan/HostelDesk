@@ -13,7 +13,9 @@ export type Room = {
   roomNumber: string;
   floor?: string | number;
   status?: string;
+  maxOccupants?: number;
 };
+
 
 export type Renter = {
   id: string;

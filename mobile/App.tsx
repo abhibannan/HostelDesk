@@ -31,6 +31,8 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 
 import { COLORS } from "./src/constants/theme";
+import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
+import { useExpoPushNotifications } from "./src/hooks/useExpoPushNotifications";
 import { Hostel, Renter, Tab } from "./src/types";
 import { dashboardFrom } from "./src/utils/formatters";
 
@@ -68,6 +70,8 @@ WebBrowser.maybeCompleteAuthSession();
 // AppContent
 // ─────────────────────────────────────────────────────────────────────────────
 function AppContent() {
+  const { colors, toggleTheme, isDark, themeMode } = useTheme();
+  const { scheduleLocalNotification } = useExpoPushNotifications();
   const [page, setPage] = useState<Tab>("dashboard");
   const [renterSearch, setRenterSearch] = useState("");
 
@@ -280,8 +284,11 @@ function AppContent() {
   // ─────────────────────────────────────────────────────────────────────────
   if (!auth.token) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
         <LoginScreen
           loginRole={auth.loginRole}
           setLoginRole={auth.setLoginRole}
@@ -314,8 +321,11 @@ function AppContent() {
   // ─────────────────────────────────────────────────────────────────────────
   if (auth.currentUser?.role === "RENTER") {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
         <RenterPortalScreen
           user={auth.currentUser}
           renter={auth.currentRenterDoc}
@@ -339,6 +349,7 @@ function AppContent() {
           onLogout={() => void auth.logout()}
           onSubmitProof={handleRenterSubmitProof}
           onSubmitRepair={handleRenterSubmitRepair}
+          scheduleLocalNotification={scheduleLocalNotification}
         />
       </SafeAreaView>
     );
@@ -348,9 +359,12 @@ function AppContent() {
   // RENDER — admin dashboard
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <View style={styles.appContainer}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
+      <View style={[styles.appContainer, { backgroundColor: colors.background }]}>
         <View style={{ flex: 1 }}>
 
           {page === "dashboard" && (
@@ -380,6 +394,7 @@ function AppContent() {
           {page === "rooms" && (
             <RoomsScreen
               rooms={data.rooms}
+              renters={data.renters}
               selectedHostel={data.selectedHostel}
               showRoomModal={rooms.showRoomModal}
               setShowRoomModal={rooms.setShowRoomModal}
@@ -391,6 +406,8 @@ function AppContent() {
               onAddRoom={() => void rooms.addRoom()}
               onDeleteRoom={(room) => rooms.deleteRoom(room)}
               onRefresh={() => void data.refreshAll()}
+              request={data.request}
+              selectedHostelId={data.selectedHostelId}
             />
           )}
 
@@ -598,12 +615,22 @@ function AppContent() {
               onNavigateToDashboard={() => setPage("dashboard")}
               onRefresh={() => void data.refreshAll()}
               onLogout={() => void auth.logout()}
+              themeMode={themeMode}
+              onToggleTheme={toggleTheme}
             />
           )}
         </View>
 
         {/* Bottom navigation */}
-        <View style={styles.bottomNav}>
+        <View
+          style={[
+            styles.bottomNav,
+            {
+              borderTopColor: colors.border,
+              backgroundColor: colors.background,
+            },
+          ]}
+        >
           <BottomTab
             icon="home-outline"
             activeIcon="home"
@@ -649,9 +676,9 @@ function AppContent() {
       </View>
 
       {data.dataLoading ? (
-        <View style={styles.refreshOverlay}>
-          <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={styles.refreshOverlayText}>Refreshing…</Text>
+        <View style={[styles.refreshOverlay, { backgroundColor: colors.card }]}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={[styles.refreshOverlayText, { color: colors.secondary }]}>Refreshing…</Text>
         </View>
       ) : null}
     </SafeAreaView>
@@ -664,7 +691,9 @@ function AppContent() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppContent />
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -673,13 +702,11 @@ export default function App() {
 // Styles (only what AppContent itself needs — screens own their own styles)
 // ─────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  appContainer: { flex: 1, backgroundColor: COLORS.background },
+  safeArea: { flex: 1 },
+  appContainer: { flex: 1 },
   bottomNav: {
     minHeight: 72,
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    backgroundColor: COLORS.background,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -689,7 +716,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     bottom: 83,
-    backgroundColor: "#FFFFFF",
     borderRadius: 99,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -701,5 +727,5 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  refreshOverlayText: { fontSize: 11, color: COLORS.secondary },
+  refreshOverlayText: { fontSize: 11 },
 });

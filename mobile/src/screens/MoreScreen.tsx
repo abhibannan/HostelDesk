@@ -6,9 +6,11 @@ import {
   TouchableOpacity,
   Alert,
   StyleSheet,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
+import { ThemeMode } from "../constants/theme";
 import { Header } from "../components/common";
 import { User } from "../types";
 
@@ -21,6 +23,8 @@ interface MoreScreenProps {
   onNavigateToDashboard: () => void;
   onRefresh: () => void;
   onLogout: () => void;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }
 
 function MoreRow({
@@ -30,6 +34,7 @@ function MoreRow({
   badge,
   onPress,
   danger = false,
+  colors,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -37,31 +42,38 @@ function MoreRow({
   badge?: number;
   onPress: () => void;
   danger?: boolean;
+  colors: ReturnType<typeof useTheme>["colors"];
 }) {
   return (
-    <TouchableOpacity style={styles.moreRow} onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      style={[styles.moreRow, { borderColor: colors.border, backgroundColor: colors.card }]}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
       <View
         style={[
           styles.moreIcon,
-          { backgroundColor: danger ? COLORS.dangerLight : COLORS.primaryLight },
+          { backgroundColor: danger ? colors.dangerLight : colors.primaryLight },
         ]}
       >
         <Ionicons
           name={icon}
           size={22}
-          color={danger ? COLORS.danger : COLORS.primary}
+          color={danger ? colors.danger : colors.primary}
         />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.moreTitle, danger && { color: COLORS.danger }]}>{title}</Text>
-        <Text style={styles.moreSubtitle}>{subtitle}</Text>
+        <Text style={[styles.moreTitle, { color: danger ? colors.danger : colors.text }]}>
+          {title}
+        </Text>
+        <Text style={[styles.moreSubtitle, { color: colors.secondary }]}>{subtitle}</Text>
       </View>
       {badge !== undefined && badge > 0 ? (
-        <View style={styles.badge}>
+        <View style={[styles.badge, { backgroundColor: colors.danger }]}>
           <Text style={styles.badgeText}>{badge > 99 ? "99+" : badge}</Text>
         </View>
       ) : (
-        <Ionicons name="chevron-forward" size={20} color={COLORS.secondary} />
+        <Ionicons name="chevron-forward" size={20} color={colors.secondary} />
       )}
     </TouchableOpacity>
   );
@@ -76,7 +88,12 @@ export function MoreScreen({
   onNavigateToDashboard,
   onRefresh,
   onLogout,
+  themeMode,
+  onToggleTheme,
 }: MoreScreenProps) {
+  const { colors } = useTheme();
+  const isDark = themeMode === "dark";
+
   function handleLogout() {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
@@ -95,54 +112,99 @@ export function MoreScreen({
     : "Admin";
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.screenContent}
+    >
       <Header title="More" subtitle="Additional StayNexa modules." onRefresh={onRefresh} />
 
       {/* Admin profile card */}
-      <View style={styles.profileCard}>
-        <View style={styles.profileAvatar}>
+      <View style={[styles.profileCard, { backgroundColor: colors.primaryLight }]}>
+        <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
           <Text style={styles.profileInitials}>{initials}</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.profileName}>{displayName}</Text>
-          <Text style={styles.profileEmail}>{currentUser?.email || ""}</Text>
-          <View style={styles.roleBadge}>
-            <Ionicons name="shield-checkmark-outline" size={11} color={COLORS.primary} />
-            <Text style={styles.roleText}>Admin</Text>
+          <Text style={[styles.profileName, { color: colors.text }]}>{displayName}</Text>
+          <Text style={[styles.profileEmail, { color: colors.secondary }]}>
+            {currentUser?.email || ""}
+          </Text>
+          <View style={[styles.roleBadge, { backgroundColor: colors.card }]}>
+            <Ionicons name="shield-checkmark-outline" size={11} color={colors.primary} />
+            <Text style={[styles.roleText, { color: colors.primary }]}>Admin</Text>
           </View>
         </View>
       </View>
 
       {/* Section label */}
-      <Text style={styles.sectionLabel}>MODULES</Text>
+      <Text style={[styles.sectionLabel, { color: colors.secondary }]}>MODULES</Text>
 
       <MoreRow
         icon="receipt-outline"
         title="Fees & Rent Reminders"
         subtitle="Create fees, send rent reminders to unpaid residents"
         onPress={onNavigateToFees}
+        colors={colors}
       />
       <MoreRow
         icon="card-outline"
         title="Payment Proofs"
         subtitle="Review and approve renter payment receipts"
         onPress={onNavigateToPayments}
+        colors={colors}
       />
       <MoreRow
         icon="construct-outline"
         title="Maintenance & Repairs"
         subtitle="Track complaints, update status and warden notes"
         onPress={onNavigateToRepairs}
+        colors={colors}
       />
       <MoreRow
         icon="notifications-outline"
         title="Broadcasts & Announcements"
         subtitle="Send announcements, alerts and notices to residents"
         onPress={onNavigateToNotifications}
+        colors={colors}
       />
 
       {/* Section label */}
-      <Text style={[styles.sectionLabel, { marginTop: 8 }]}>ACCOUNT</Text>
+      <Text style={[styles.sectionLabel, { color: colors.secondary, marginTop: 8 }]}>
+        APPEARANCE
+      </Text>
+
+      {/* Dark / Light mode toggle row */}
+      <View
+        style={[styles.moreRow, styles.themeRow, { borderColor: colors.border, backgroundColor: colors.card }]}
+      >
+        <View
+          style={[styles.moreIcon, { backgroundColor: isDark ? colors.purpleLight : colors.warningLight }]}
+        >
+          <Ionicons
+            name={isDark ? "moon" : "sunny"}
+            size={22}
+            color={isDark ? colors.purple : colors.warning}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.moreTitle, { color: colors.text }]}>
+            {isDark ? "Dark Mode" : "Light Mode"}
+          </Text>
+          <Text style={[styles.moreSubtitle, { color: colors.secondary }]}>
+            {isDark ? "Switch to light theme" : "Switch to dark theme"}
+          </Text>
+        </View>
+        <Switch
+          value={isDark}
+          onValueChange={onToggleTheme}
+          trackColor={{ false: colors.grayFill, true: colors.primary }}
+          thumbColor={isDark ? "#FFFFFF" : "#FFFFFF"}
+        />
+      </View>
+
+      {/* Section label */}
+      <Text style={[styles.sectionLabel, { color: colors.secondary, marginTop: 8 }]}>
+        ACCOUNT
+      </Text>
 
       <MoreRow
         icon="log-out-outline"
@@ -150,22 +212,22 @@ export function MoreScreen({
         subtitle="Sign out from StayNexa"
         danger
         onPress={handleLogout}
+        colors={colors}
       />
 
-      <Text style={styles.versionText}>StayNexa v1.0.0</Text>
+      <Text style={[styles.versionText, { color: colors.secondary }]}>StayNexa v1.0.0</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: COLORS.background },
+  screen: { flex: 1 },
   screenContent: { padding: 20, paddingBottom: 40 },
 
   // Profile card
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.primaryLight,
     borderRadius: 18,
     padding: 16,
     marginBottom: 22,
@@ -175,7 +237,6 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -188,11 +249,9 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 16,
     fontWeight: "700",
-    color: COLORS.text,
   },
   profileEmail: {
     fontSize: 12,
-    color: COLORS.secondary,
     marginTop: 2,
   },
   roleBadge: {
@@ -200,7 +259,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     marginTop: 5,
-    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -209,14 +267,12 @@ const styles = StyleSheet.create({
   roleText: {
     fontSize: 11,
     fontWeight: "700",
-    color: COLORS.primary,
   },
 
   // Section label
   sectionLabel: {
     fontSize: 11,
     fontWeight: "700",
-    color: COLORS.secondary,
     letterSpacing: 1,
     marginBottom: 10,
     marginLeft: 4,
@@ -225,13 +281,14 @@ const styles = StyleSheet.create({
   // Row
   moreRow: {
     borderWidth: 1,
-    borderColor: COLORS.border,
     borderRadius: 17,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 11,
-    backgroundColor: COLORS.background,
+  },
+  themeRow: {
+    paddingVertical: 12,
   },
   moreIcon: {
     width: 46,
@@ -241,15 +298,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-  moreTitle: { fontSize: 15, fontWeight: "800", color: COLORS.text },
-  moreSubtitle: { marginTop: 3, fontSize: 12, color: COLORS.secondary },
+  moreTitle: { fontSize: 15, fontWeight: "800" },
+  moreSubtitle: { marginTop: 3, fontSize: 12 },
 
   // Badge
   badge: {
     minWidth: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: COLORS.danger,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 5,
@@ -260,7 +316,6 @@ const styles = StyleSheet.create({
   versionText: {
     textAlign: "center",
     fontSize: 11,
-    color: COLORS.secondary,
     marginTop: 20,
   },
 });

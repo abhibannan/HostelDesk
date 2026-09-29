@@ -354,4 +354,190 @@ router.delete(
   },
 );
 
+// ── GET room occupants ────────────────────────────────────────────────────────
+router.get(
+  "/:hostelId/rooms/:roomId/occupants",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      const { hostelId, roomId } = req.params;
+      if (typeof hostelId !== "string" || typeof roomId !== "string") {
+        res.status(400).json({ message: "Invalid ID" });
+        return;
+      }
+
+      const rentersSnap = await db
+        .collection("renters")
+        .where("hostelId", "==", hostelId)
+        .where("roomId", "==", roomId)
+        .where("status", "==", "ACTIVE")
+        .get();
+
+      const occupants = await Promise.all(
+        rentersSnap.docs.map(async (doc) => {
+          const data = doc.data();
+          let userData: Record<string, unknown> = {};
+          if (data.userId) {
+            const userSnap = await db.collection("users").doc(data.userId).get();
+            if (userSnap.exists) userData = userSnap.data() ?? {};
+          }
+          return {
+            id: doc.id,
+            userId: data.userId ?? null,
+            status: data.status ?? "ACTIVE",
+            joiningDate: data.joiningDate ?? null,
+            monthlyFee: data.monthlyFee ?? null,
+            securityDeposit: data.securityDeposit ?? null,
+            guardianName: data.guardianName ?? null,
+            guardianPhone: data.guardianPhone ?? null,
+            user: {
+              firstName: userData.firstName ?? null,
+              lastName: userData.lastName ?? null,
+              email: userData.email ?? null,
+              phone: userData.phone ?? null,
+            },
+          };
+        })
+      );
+
+      res.json({ occupants });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── PATCH room capacity ───────────────────────────────────────────────────────
+router.patch(
+  "/:hostelId/rooms/:roomId/capacity",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (req.authUser?.role !== "SUPER_ADMIN" && req.authUser?.role !== "ADMIN") {
+        res.status(403).json({ message: "Access denied" });
+        return;
+      }
+
+      const hostelId = req.params.hostelId as string;
+      const roomId = req.params.roomId as string;
+      const { maxOccupants } = req.body as { maxOccupants?: number };
+
+
+      if (maxOccupants === undefined || typeof maxOccupants !== "number" || maxOccupants < 1) {
+        res.status(400).json({ message: "maxOccupants must be a positive integer" });
+        return;
+      }
+
+      const roomRef = db.collection("rooms").doc(roomId);
+      const room = await roomRef.get();
+      if (!room.exists || room.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Room not found" });
+        return;
+      }
+
+      await roomRef.update({ maxOccupants, updatedAt: new Date().toISOString() });
+      res.json({ message: "Capacity updated", maxOccupants });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ── PATCH transfer renter to another room ─────────────────────────────────────
+router.patch(
+  "/:hostelId/rooms/:roomId/transfer",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (req.authUser?.role !== "SUPER_ADMIN" && req.authUser?.role !== "ADMIN") {
+        res.status(403).json({ message: "Access denied" });
+        return;
+      }
+
+      const hostelId = req.params.hostelId as string;
+      const sourceRoomId = req.params.roomId as string;
+      const { renterId, targetRoomId } = req.body as { renterId?: string; targetRoomId?: string };
+
+      if (!renterId || !targetRoomId) {
+        res.status(400).json({ message: "renterId and targetRoomId are required" });
+        return;
+      }
+      if (sourceRoomId === targetRoomId) {
+        res.status(400).json({ message: "Source and target rooms are the same" });
+        return;
+      }
+
+      // Verify target room exists in same hostel
+      const targetRoomRef = db.collection("rooms").doc(targetRoomId);
+      const targetRoom = await targetRoomRef.get();
+      if (!targetRoom.exists || targetRoom.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Target room not found in this hostel" });
+        return;
+      }
+
+      // Verify renter exists and is in source room
+      const renterRef = db.collection("renters").doc(renterId);
+      const renter = await renterRef.get();
+      if (!renter.exists || renter.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Renter not found" });
+        return;
+      }
+      if (renter.data()?.roomId !== sourceRoomId) {
+        res.status(400).json({ message: "Renter is not in the source room" });
+        return;
+      }
+
+      // Check capacity of target room
+      const targetMaxOccupants: number = targetRoom.data()?.maxOccupants ?? 999;
+      const targetCurrentSnap = await db
+        .collection("renters")
+        .where("hostelId", "==", hostelId)
+        .where("roomId", "==", targetRoomId)
+        .where("status", "==", "ACTIVE")
+        .get();
+      if (targetCurrentSnap.size >= targetMaxOccupants) {
+        res.status(409).json({ message: "Target room is at full capacity" });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      // Move renter
+      await renterRef.update({ roomId: targetRoomId, updatedAt: now });
+
+      // Update source room status
+      const sourceRemaining = await db
+        .collection("renters")
+        .where("hostelId", "==", hostelId)
+        .where("roomId", "==", sourceRoomId)
+        .where("status", "==", "ACTIVE")
+        .get();
+      const sourceOccupied = sourceRemaining.docs.filter((d) => d.id !== renterId).length;
+      const sourceRef = db.collection("rooms").doc(sourceRoomId);
+      await sourceRef.update({
+        status: sourceOccupied === 0 ? "ACTIVE" : "OCCUPIED",
+        updatedAt: now,
+      });
+
+      // Update target room status
+      await targetRoomRef.update({ status: "OCCUPIED", updatedAt: now });
+
+      await writeAuditLog({
+        actorId: req.authUser.id,
+        action: "TRANSFER_RENTER",
+        entityType: "RENTER",
+        entityId: renterId,
+        metadata: { hostelId, sourceRoomId, targetRoomId },
+      });
+
+      res.json({ message: "Renter transferred successfully" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;
+
