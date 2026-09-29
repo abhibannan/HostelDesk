@@ -1,4 +1,4 @@
-export type Tab = "dashboard" | "hostels" | "rooms" | "renters" | "fees" | "payments" | "more";
+export type Tab = "dashboard" | "hostels" | "rooms" | "renters" | "fees" | "payments" | "repairs" | "notifications" | "more";
 
 export type Hostel = {
   id: string;
@@ -23,6 +23,7 @@ export type Renter = {
   fullName?: string;
   email?: string;
   phone?: string;
+  guardianName?: string;
   guardianPhone?: string;
   status?: string;
   roomId?: string;
@@ -88,11 +89,29 @@ export type User = {
   firstName?: string;
   lastName?: string;
   phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
   role: "SUPER_ADMIN" | "ADMIN" | "RENTER";
   status?: string;
 };
 
-export type RenterTab = "details" | "fees" | "repairs";
+export type RenterTab = "details" | "fees" | "repairs" | "notifications";
+
+export type Notification = {
+  id: string;
+  userId?: string;
+  type: string;
+  title: string;
+  message: string;
+  hostelId?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  read: boolean;
+  createdAt: string;
+  readAt?: string | null;
+};
 
 export type Repair = {
   id: string;

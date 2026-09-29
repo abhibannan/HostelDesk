@@ -1,9 +1,11 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
+import { startRecurringFeesCron } from "./services/recurring-fees.service.js";
 
 const server = app.listen(env.PORT, () => {
   console.log(`StayNexa API running on http://localhost:${env.PORT}`);
   console.log("Database: Firebase Firestore");
+  startRecurringFeesCron();
 });
 
 const shutdown = (signal: string) => {

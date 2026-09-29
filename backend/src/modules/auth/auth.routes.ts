@@ -180,4 +180,68 @@ router.post("/admins", requireAuth, async (req, res, next) => {
   }
 });
 
+const changePasswordSchema = z.object({
+  password: z.string().min(6).max(128),
+});
+
+router.post("/change-password", requireAuth, async (req, res, next) => {
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        message: "Password must be at least 6 characters long",
+        errors: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const firebaseUid = req.authUser!.firebaseUid;
+    if (!firebaseUid) {
+      res.status(400).json({ message: "Invalid user account" });
+      return;
+    }
+
+    await firebaseAuth.updateUser(firebaseUid, {
+      password: parsed.data.password,
+    });
+
+    await writeAuditLog({
+      actorId: req.authUser!.id,
+      action: "CHANGE_PASSWORD",
+      entityType: "USER",
+      entityId: req.authUser!.id,
+    });
+
+    res.json({
+      message: "Password updated successfully. You can now use this password to sign in.",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+router.post("/forgot-password", async (req, res, next) => {
+  try {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: "A valid email is required" });
+      return;
+    }
+
+    const email = parsed.data.email.toLowerCase().trim();
+    const resetLink = await firebaseAuth.generatePasswordResetLink(email);
+
+    res.json({
+      message: "Password setup/reset link generated",
+      resetLink,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

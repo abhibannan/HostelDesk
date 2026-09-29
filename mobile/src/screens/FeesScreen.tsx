@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
@@ -41,6 +42,18 @@ interface FeesScreenProps {
   onOpenFeeModal: () => void;
   onAddFee: () => void;
   onRefresh: () => void;
+  onRemindFee?: (feeId: string, renterName: string) => void;
+  onRemindAllUnpaid?: () => void;
+  // Recurring fee generation & overdue scan
+  showGenerateModal?: boolean;
+  setShowGenerateModal?: (v: boolean) => void;
+  generateMonth?: string;
+  setGenerateMonth?: (m: string) => void;
+  generateDueDate?: string;
+  setGenerateDueDate?: (d: string) => void;
+  generateSaving?: boolean;
+  onGenerateMonthlyFees?: () => void;
+  onMarkOverdue?: () => void;
 }
 
 function FeeDetail({ label, value }: { label: string; value: string }) {
@@ -76,9 +89,21 @@ export function FeesScreen(props: FeesScreenProps) {
     onOpenFeeModal,
     onAddFee,
     onRefresh,
+    onRemindFee,
+    onRemindAllUnpaid,
+    showGenerateModal = false,
+    setShowGenerateModal,
+    generateMonth = "",
+    setGenerateMonth,
+    generateDueDate = "",
+    setGenerateDueDate,
+    generateSaving = false,
+    onGenerateMonthlyFees,
+    onMarkOverdue,
   } = props;
 
   const feeRenter = renters.find((renter) => renter.id === feeRenterId);
+  const unpaidCount = fees.filter((f) => String(f.status).toUpperCase() !== "PAID").length;
 
   return (
     <View style={styles.screen}>
@@ -89,16 +114,38 @@ export function FeesScreen(props: FeesScreenProps) {
           onRefresh={onRefresh}
         />
         <View style={styles.actionRow}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.sectionTitle}>Fee records</Text>
             <Text style={styles.sectionSubtitle}>
-              {fees.length} fee{fees.length === 1 ? "" : "s"}
+              {fees.length} fee{fees.length === 1 ? "" : "s"} · {unpaidCount} unpaid
             </Text>
           </View>
-          <TouchableOpacity style={styles.smallPrimaryButton} onPress={onOpenFeeModal}>
-            <Ionicons name="add" size={19} color="#FFFFFF" />
-            <Text style={styles.smallPrimaryText}>Add Fee</Text>
-          </TouchableOpacity>
+          <View style={styles.headerBtnGroup}>
+            {onGenerateMonthlyFees && (
+              <TouchableOpacity
+                style={styles.generateButton}
+                onPress={() => setShowGenerateModal?.(true)}
+              >
+                <Ionicons name="flash-outline" size={14} color={COLORS.primary} />
+                <Text style={styles.generateButtonText}>Auto-Generate</Text>
+              </TouchableOpacity>
+            )}
+
+            {unpaidCount > 0 ? (
+              <TouchableOpacity
+                style={styles.remindAllButton}
+                onPress={() => onRemindAllUnpaid?.()}
+              >
+                <Ionicons name="notifications-outline" size={14} color="#B45309" />
+                <Text style={styles.remindAllButtonText}>Remind ({unpaidCount})</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity style={styles.smallPrimaryButton} onPress={onOpenFeeModal}>
+              <Ionicons name="add" size={18} color="#FFFFFF" />
+              <Text style={styles.smallPrimaryText}>Add Fee</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {fees.length === 0 ? (
@@ -156,9 +203,22 @@ export function FeesScreen(props: FeesScreenProps) {
                   <FeeDetail label="Remaining" value={money(remaining)} />
                 </View>
 
-                {fee.description ? (
-                  <Text style={styles.feeDescription}>{fee.description}</Text>
-                ) : null}
+                <View style={styles.feeCardFooter}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    {fee.description ? (
+                      <Text style={styles.feeDescription}>{fee.description}</Text>
+                    ) : null}
+                  </View>
+                  {remaining > 0 ? (
+                    <TouchableOpacity
+                      style={styles.cardRemindBtn}
+                      onPress={() => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter")}
+                    >
+                      <Ionicons name="notifications-outline" size={14} color={COLORS.primary} />
+                      <Text style={styles.cardRemindBtnText}>Remind</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
             );
           })
@@ -316,6 +376,71 @@ export function FeesScreen(props: FeesScreenProps) {
           </View>
         </View>
       </Modal>
+
+      {/* AUTO-GENERATE MONTHLY RENT MODAL */}
+      <Modal
+        visible={showGenerateModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !generateSaving && setShowGenerateModal?.(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            style={styles.modalKeyboard}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={styles.modalCardLarge}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.modalTitle}>Auto-Generate Rent</Text>
+                  <Text style={styles.modalSubtitle}>
+                    Automatically create monthly rent fees for all active residents based on their assigned rent amount.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => !generateSaving && setShowGenerateModal?.(false)}
+                >
+                  <Ionicons name="close" size={22} color={COLORS.secondary} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>Billing Month (YYYY-MM)</Text>
+              <TextInput
+                style={styles.input}
+                value={generateMonth}
+                onChangeText={setGenerateMonth}
+                placeholder="2026-09"
+                placeholderTextColor="#94A3B8"
+              />
+
+              <Text style={styles.label}>Payment Due Date</Text>
+              <TextInput
+                style={styles.input}
+                value={generateDueDate}
+                onChangeText={setGenerateDueDate}
+                placeholder="2026-09-10"
+                placeholderTextColor="#94A3B8"
+              />
+
+              <TouchableOpacity
+                style={[styles.primaryButton, { marginTop: 22 }]}
+                disabled={generateSaving}
+                onPress={onGenerateMonthlyFees}
+              >
+                {generateSaving ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="flash" size={17} color="#FFFFFF" />
+                    <Text style={styles.primaryButtonText}>Generate for All Residents</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -356,4 +481,108 @@ const styles = StyleSheet.create({
   pickerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   pickerSelected: { backgroundColor: COLORS.primaryLight, borderRadius: 12, paddingHorizontal: 8 },
   pickerIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.primaryLight, alignItems: "center", justifyContent: "center", marginRight: 11 },
+  headerBtnGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  broadcastButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  broadcastButtonText: {
+    color: COLORS.primary,
+    fontWeight: "700",
+    fontSize: 11,
+    marginLeft: 3,
+  },
+  remindAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  remindAllButtonText: {
+    color: "#B45309",
+    fontWeight: "700",
+    fontSize: 11,
+    marginLeft: 3,
+  },
+  feeCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  cardRemindBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  cardRemindBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  typeSelectorRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8,
+  },
+  typeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  typeButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  typeButtonText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.secondary,
+  },
+  typeButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  generateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  generateButtonText: {
+    color: COLORS.primary,
+    fontWeight: "700",
+    fontSize: 11,
+    marginLeft: 3,
+  },
 });

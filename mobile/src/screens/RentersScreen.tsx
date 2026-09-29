@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { COLORS } from "../constants/theme";
 import { Hostel, Renter, Room } from "../types";
 import { getName, getEmail, money } from "../utils/formatters";
 import { Header, EmptyState } from "../components/common";
+import { CalendarPickerModal } from "../components/CalendarPickerModal";
 
 interface RentersScreenProps {
   renters: Renter[];
@@ -46,8 +47,18 @@ interface RentersScreenProps {
   setRenterEmail: (text: string) => void;
   renterPhone: string;
   setRenterPhone: (text: string) => void;
+  guardianName: string;
+  setGuardianName: (text: string) => void;
   guardianPhone: string;
   setGuardianPhone: (text: string) => void;
+  address: string;
+  setAddress: (text: string) => void;
+  city: string;
+  setCity: (text: string) => void;
+  state: string;
+  setState: (text: string) => void;
+  pincode: string;
+  setPincode: (text: string) => void;
   renterPassword: string;
   setRenterPassword: (text: string) => void;
   showRenterPassword: boolean;
@@ -68,10 +79,26 @@ interface RentersScreenProps {
   showEditRenterModal: boolean;
   setShowEditRenterModal: (show: boolean) => void;
   editingRenterId: string;
-  editRenterRoomId: string;
-  setEditRenterRoomId: (id: string) => void;
+  editFirstName: string;
+  setEditFirstName: (text: string) => void;
+  editLastName: string;
+  setEditLastName: (text: string) => void;
+  editPhone: string;
+  setEditPhone: (text: string) => void;
+  editGuardianName: string;
+  setEditGuardianName: (text: string) => void;
   editGuardianPhone: string;
   setEditGuardianPhone: (phone: string) => void;
+  editAddress: string;
+  setEditAddress: (text: string) => void;
+  editCity: string;
+  setEditCity: (text: string) => void;
+  editState: string;
+  setEditState: (text: string) => void;
+  editPincode: string;
+  setEditPincode: (text: string) => void;
+  editRenterRoomId: string;
+  setEditRenterRoomId: (id: string) => void;
   editJoiningDate: string;
   setEditJoiningDate: (date: string) => void;
   editMonthlyFee: string;
@@ -123,8 +150,18 @@ export function RentersScreen(props: RentersScreenProps) {
     setRenterEmail,
     renterPhone,
     setRenterPhone,
+    guardianName,
+    setGuardianName,
     guardianPhone,
     setGuardianPhone,
+    address,
+    setAddress,
+    city,
+    setCity,
+    state,
+    setState,
+    pincode,
+    setPincode,
     renterPassword,
     setRenterPassword,
     showRenterPassword,
@@ -144,10 +181,26 @@ export function RentersScreen(props: RentersScreenProps) {
     showEditRenterModal,
     setShowEditRenterModal,
     editingRenterId,
-    editRenterRoomId,
-    setEditRenterRoomId,
+    editFirstName,
+    setEditFirstName,
+    editLastName,
+    setEditLastName,
+    editPhone,
+    setEditPhone,
+    editGuardianName,
+    setEditGuardianName,
     editGuardianPhone,
     setEditGuardianPhone,
+    editAddress,
+    setEditAddress,
+    editCity,
+    setEditCity,
+    editState,
+    setEditState,
+    editPincode,
+    setEditPincode,
+    editRenterRoomId,
+    setEditRenterRoomId,
     editJoiningDate,
     setEditJoiningDate,
     editMonthlyFee,
@@ -163,6 +216,7 @@ export function RentersScreen(props: RentersScreenProps) {
     onRefresh,
   } = props;
 
+  const [calendarTarget, setCalendarTarget] = useState<"add" | "edit" | null>(null);
   const selectedRoom = rooms.find((room) => room.id === renterRoomId);
   const editSelectedRoom = rooms.find((room) => room.id === editRenterRoomId);
   const normalizedSearch = renterSearch.trim().toLowerCase();
@@ -492,19 +546,22 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={styles.label}>Email *</Text>
                 <TextInput style={styles.input} value={renterEmail} onChangeText={setRenterEmail} placeholder="renter@example.com" placeholderTextColor="#94A3B8" keyboardType="email-address" autoCapitalize="none" />
 
-                <Text style={styles.label}>Phone *</Text>
-                <TextInput style={styles.input} value={renterPhone} onChangeText={setRenterPhone} placeholder="Renter phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
+                <Text style={styles.label}>Phone (optional for first time)</Text>
+                <TextInput style={styles.input} value={renterPhone} onChangeText={setRenterPhone} placeholder="Renter phone number (optional)" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
 
-                <Text style={styles.label}>Guardian number *</Text>
-                <TextInput style={styles.input} value={guardianPhone} onChangeText={setGuardianPhone} placeholder="Guardian phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
+                <Text style={styles.label}>Guardian name (optional)</Text>
+                <TextInput style={styles.input} value={guardianName} onChangeText={setGuardianName} placeholder="Guardian full name (optional)" placeholderTextColor="#94A3B8" />
 
-                <Text style={styles.label}>Password *</Text>
+                <Text style={styles.label}>Guardian number (optional)</Text>
+                <TextInput style={styles.input} value={guardianPhone} onChangeText={setGuardianPhone} placeholder="Guardian phone number (optional)" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
+
+                <Text style={styles.label}>Initial Password (Optional)</Text>
                 <View style={styles.inputWithIcon}>
                   <TextInput
                     style={styles.inputWithIconText}
                     value={renterPassword}
                     onChangeText={setRenterPassword}
-                    placeholder="Minimum 6 characters"
+                    placeholder="Leave blank or min 6 characters"
                     placeholderTextColor="#94A3B8"
                     secureTextEntry={!showRenterPassword}
                     autoCapitalize="none"
@@ -513,6 +570,9 @@ export function RentersScreen(props: RentersScreenProps) {
                     <Ionicons name={showRenterPassword ? "eye-off-outline" : "eye-outline"} size={21} color={COLORS.secondary} />
                   </TouchableOpacity>
                 </View>
+                <Text style={styles.passwordHint}>
+                  Optional. The resident can log in via Google or set/create their own password anytime.
+                </Text>
 
                 <Text style={styles.label}>Room *</Text>
                 <TouchableOpacity style={styles.selector} onPress={() => setRenterRoomPickerOpen(true)}>
@@ -522,14 +582,54 @@ export function RentersScreen(props: RentersScreenProps) {
                   <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
                 </TouchableOpacity>
 
-                <Text style={styles.label}>Joining date *</Text>
-                <TextInput style={styles.input} value={joiningDate} onChangeText={setJoiningDate} placeholder="YYYY-MM-DD" placeholderTextColor="#94A3B8" />
+                <Text style={styles.label}>Joining & Recurring Due Date *</Text>
+                <TouchableOpacity
+                  style={styles.dateSelector}
+                  onPress={() => setCalendarTarget("add")}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="calendar-outline" size={20} color={COLORS.primary} />
+                    <Text style={styles.dateSelectorText}>
+                      {joiningDate || "Select recurring date"}
+                    </Text>
+                  </View>
+                  <View style={styles.dateBadge}>
+                    <Text style={styles.dateBadgeText}>
+                      {joiningDate ? `Day ${parseInt(joiningDate.slice(8, 10), 10) || 1} monthly` : "Pick Date"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {joiningDate ? (
+                  <View style={styles.recurringHintBox}>
+                    <Ionicons name="notifications-outline" size={15} color={COLORS.primary} />
+                    <Text style={styles.recurringHintText}>
+                      Rent will automatically recur on Day {parseInt(joiningDate.slice(8, 10), 10) || 1} of every month with auto-notifications.
+                    </Text>
+                  </View>
+                ) : null}
 
                 <Text style={styles.label}>Monthly fee *</Text>
                 <TextInput style={styles.input} value={monthlyFee} onChangeText={setMonthlyFee} placeholder="Example: 8000" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
 
                 <Text style={styles.label}>Security deposit</Text>
                 <TextInput style={styles.input} value={securityDeposit} onChangeText={setSecurityDeposit} placeholder="Example: 8000" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
+
+                <Text style={[styles.label, { marginTop: 16, fontWeight: "700" }]}>Resident Address (Optional)</Text>
+                <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Street address (optional)" placeholderTextColor="#94A3B8" />
+
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>City (optional)</Text>
+                    <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="City" placeholderTextColor="#94A3B8" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>State (optional)</Text>
+                    <TextInput style={styles.input} value={state} onChangeText={setState} placeholder="State" placeholderTextColor="#94A3B8" />
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Pincode (optional)</Text>
+                <TextInput style={styles.input} value={pincode} onChangeText={setPincode} placeholder="Pincode" placeholderTextColor="#94A3B8" keyboardType="numeric" />
 
                 <TouchableOpacity style={styles.primaryButton} disabled={renterSaving} onPress={onAddRenter}>
                   {renterSaving ? (
@@ -617,11 +717,68 @@ export function RentersScreen(props: RentersScreenProps) {
                   <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
                 </TouchableOpacity>
 
-                <Text style={styles.label}>Guardian number *</Text>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>First name</Text>
+                    <TextInput style={styles.input} value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" placeholderTextColor="#94A3B8" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Last name</Text>
+                    <TextInput style={styles.input} value={editLastName} onChangeText={setEditLastName} placeholder="Last name" placeholderTextColor="#94A3B8" />
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Phone number</Text>
+                <TextInput style={styles.input} value={editPhone} onChangeText={setEditPhone} placeholder="Renter phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
+
+                <Text style={styles.label}>Guardian name</Text>
+                <TextInput style={styles.input} value={editGuardianName} onChangeText={setEditGuardianName} placeholder="Guardian full name" placeholderTextColor="#94A3B8" />
+
+                <Text style={styles.label}>Guardian number</Text>
                 <TextInput style={styles.input} value={editGuardianPhone} onChangeText={setEditGuardianPhone} placeholder="Guardian phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
 
-                <Text style={styles.label}>Joining date *</Text>
-                <TextInput style={styles.input} value={editJoiningDate} onChangeText={setEditJoiningDate} placeholder="YYYY-MM-DD" placeholderTextColor="#94A3B8" />
+                <Text style={[styles.label, { marginTop: 14, fontWeight: "700" }]}>Resident Address</Text>
+                <TextInput style={styles.input} value={editAddress} onChangeText={setEditAddress} placeholder="Street address" placeholderTextColor="#94A3B8" />
+
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>City</Text>
+                    <TextInput style={styles.input} value={editCity} onChangeText={setEditCity} placeholder="City" placeholderTextColor="#94A3B8" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>State</Text>
+                    <TextInput style={styles.input} value={editState} onChangeText={setEditState} placeholder="State" placeholderTextColor="#94A3B8" />
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Pincode</Text>
+                <TextInput style={styles.input} value={editPincode} onChangeText={setEditPincode} placeholder="Pincode" placeholderTextColor="#94A3B8" keyboardType="numeric" />
+
+                <Text style={styles.label}>Joining & Recurring Due Date *</Text>
+                <TouchableOpacity
+                  style={styles.dateSelector}
+                  onPress={() => setCalendarTarget("edit")}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Ionicons name="calendar-outline" size={20} color={COLORS.primary} />
+                    <Text style={styles.dateSelectorText}>
+                      {editJoiningDate || "Select recurring date"}
+                    </Text>
+                  </View>
+                  <View style={styles.dateBadge}>
+                    <Text style={styles.dateBadgeText}>
+                      {editJoiningDate ? `Day ${parseInt(editJoiningDate.slice(8, 10), 10) || 1} monthly` : "Pick Date"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {editJoiningDate ? (
+                  <View style={styles.recurringHintBox}>
+                    <Ionicons name="notifications-outline" size={15} color={COLORS.primary} />
+                    <Text style={styles.recurringHintText}>
+                      Rent will automatically recur on Day {parseInt(editJoiningDate.slice(8, 10), 10) || 1} of every month with auto-notifications.
+                    </Text>
+                  </View>
+                ) : null}
 
                 <Text style={styles.label}>Monthly fee *</Text>
                 <TextInput style={styles.input} value={editMonthlyFee} onChangeText={setEditMonthlyFee} placeholder="Monthly fee" placeholderTextColor="#94A3B8" keyboardType="decimal-pad" />
@@ -693,6 +850,22 @@ export function RentersScreen(props: RentersScreenProps) {
           </View>
         </View>
       </Modal>
+
+      {/* CALENDAR PICKER MODAL */}
+      <CalendarPickerModal
+        visible={calendarTarget !== null}
+        initialDate={calendarTarget === "add" ? joiningDate : editJoiningDate}
+        onSelectDate={(selectedDate) => {
+          if (calendarTarget === "add") {
+            setJoiningDate(selectedDate);
+          } else if (calendarTarget === "edit") {
+            setEditJoiningDate(selectedDate);
+          }
+          setCalendarTarget(null);
+        }}
+        onClose={() => setCalendarTarget(null)}
+        title="Select Recurring Due Date"
+      />
     </View>
   );
 }
@@ -754,4 +927,57 @@ const styles = StyleSheet.create({
   statusSelectorButtonActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   statusSelectorText: { fontSize: 12, fontWeight: "700", color: COLORS.secondary },
   statusSelectorTextActive: { color: "#FFFFFF" },
+  dateSelector: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: COLORS.background,
+  },
+  dateSelectorText: {
+    fontSize: 14,
+    color: COLORS.text,
+    fontWeight: "600",
+  },
+  dateBadge: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  dateBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  recurringHintBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 10,
+    padding: 9,
+    marginTop: 6,
+  },
+  recurringHintText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#166534",
+    fontWeight: "600",
+    lineHeight: 15,
+  },
+  passwordHint: {
+    fontSize: 11,
+    color: COLORS.secondary,
+    fontWeight: "500",
+    marginTop: 5,
+    marginBottom: 2,
+    fontStyle: "italic",
+  },
 });

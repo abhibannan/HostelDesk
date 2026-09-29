@@ -8,6 +8,7 @@ import {
 import { requireAuth } from "../../middleware/auth.middleware.js";
 import { requireHostelAccess } from "../../middleware/hostel-access.middleware.js";
 import { writeAuditLog } from "../../utils/audit.js";
+import { createNotification } from "../notifications/notifications.server.js";
 
 const router = Router();
 
@@ -121,9 +122,14 @@ const createRenterAccountSchema = z.object({
   firstName: z.string().trim().min(2).max(100),
   lastName: z.string().trim().max(100).optional(),
   email: z.string().trim().email().max(255),
-  phone: z.string().trim().min(7).max(30),
-  guardianPhone: z.string().trim().min(7).max(30),
-  password: z.string().min(6).max(100),
+  phone: z.string().trim().max(30).optional().default(""),
+  guardianPhone: z.string().trim().max(30).optional().default(""),
+  guardianName: z.string().trim().max(100).optional().default(""),
+  address: z.string().trim().max(500).optional().default(""),
+  city: z.string().trim().max(100).optional().default(""),
+  state: z.string().trim().max(100).optional().default(""),
+  pincode: z.string().trim().max(20).optional().default(""),
+  password: z.string().min(6).max(100).optional(),
   roomId: z.string().min(1),
   joiningDate: z.string().min(1),
   monthlyFee: z.number().nonnegative(),
@@ -135,7 +141,8 @@ const createRenterAccountSchema = z.object({
 
 const renterSchema = z.object({
   userId: z.string().min(1),
-  guardianPhone: z.string().trim().min(7).max(30),
+  guardianPhone: z.string().trim().max(30).optional().default(""),
+  guardianName: z.string().trim().max(100).optional().default(""),
   roomId: z.string().min(1),
   joiningDate: z.string().min(1),
   monthlyFee: z.number().nonnegative(),
@@ -146,7 +153,15 @@ const renterSchema = z.object({
 });
 
 const updateRenterSchema = z.object({
-  guardianPhone: z.string().trim().min(7).max(30).optional(),
+  firstName: z.string().trim().max(100).optional(),
+  lastName: z.string().trim().max(100).optional(),
+  phone: z.string().trim().max(30).optional(),
+  guardianName: z.string().trim().max(100).optional(),
+  guardianPhone: z.string().trim().max(30).optional(),
+  address: z.string().trim().max(500).optional(),
+  city: z.string().trim().max(100).optional(),
+  state: z.string().trim().max(100).optional(),
+  pincode: z.string().trim().max(20).optional(),
   roomId: z.string().min(1).optional(),
   monthlyFee: z.number().nonnegative().optional(),
   securityDeposit: z
@@ -222,6 +237,11 @@ router.post(
         email,
         phone,
         guardianPhone,
+        guardianName,
+        address,
+        city,
+        state,
+        pincode,
         password,
         roomId,
         joiningDate,
@@ -324,7 +344,7 @@ router.post(
       const firebaseUser =
         await firebaseAuth.createUser({
           email,
-          password,
+          ...(password ? { password } : {}),
           displayName:
             `${firstName} ${lastName ?? ""}`.trim(),
         });
@@ -350,7 +370,11 @@ router.post(
         firstName,
         lastName: lastName ?? "",
         email,
-        phone,
+        phone: phone ?? "",
+        address: address ?? "",
+        city: city ?? "",
+        state: state ?? "",
+        pincode: pincode ?? "",
         role: "RENTER",
         status: "ACTIVE",
         createdAt: now,
@@ -368,7 +392,8 @@ router.post(
         userId: userRef.id,
         hostelId,
         roomId,
-        guardianPhone,
+        guardianName: guardianName ?? "",
+        guardianPhone: guardianPhone ?? "",
         joiningDate,
         monthlyFee,
         securityDeposit:
@@ -1066,10 +1091,37 @@ router.patch(
       const now =
         new Date().toISOString();
 
-      await renterRef.update({
-        ...parsed.data,
+      const renterUpdates: Record<string, any> = {
         updatedAt: now,
-      });
+      };
+
+      if (parsed.data.roomId !== undefined) renterUpdates.roomId = parsed.data.roomId;
+      if (parsed.data.monthlyFee !== undefined) renterUpdates.monthlyFee = parsed.data.monthlyFee;
+      if (parsed.data.securityDeposit !== undefined) renterUpdates.securityDeposit = parsed.data.securityDeposit;
+      if (parsed.data.joiningDate !== undefined) renterUpdates.joiningDate = parsed.data.joiningDate;
+      if (parsed.data.status !== undefined) renterUpdates.status = parsed.data.status;
+      if (parsed.data.guardianName !== undefined) renterUpdates.guardianName = parsed.data.guardianName;
+      if (parsed.data.guardianPhone !== undefined) renterUpdates.guardianPhone = parsed.data.guardianPhone;
+
+      await renterRef.update(renterUpdates);
+
+      // Also update linked user profile if address/contact details are provided
+      const renterUserId = renter.data()?.userId;
+      if (renterUserId) {
+        const userUpdates: Record<string, any> = {};
+        if (parsed.data.address !== undefined) userUpdates.address = parsed.data.address;
+        if (parsed.data.city !== undefined) userUpdates.city = parsed.data.city;
+        if (parsed.data.state !== undefined) userUpdates.state = parsed.data.state;
+        if (parsed.data.pincode !== undefined) userUpdates.pincode = parsed.data.pincode;
+        if (parsed.data.phone !== undefined) userUpdates.phone = parsed.data.phone;
+        if (parsed.data.firstName !== undefined) userUpdates.firstName = parsed.data.firstName;
+        if (parsed.data.lastName !== undefined) userUpdates.lastName = parsed.data.lastName;
+
+        if (Object.keys(userUpdates).length > 0) {
+          userUpdates.updatedAt = now;
+          await db.collection("users").doc(renterUserId).update(userUpdates);
+        }
+      }
 
       const updated =
         await renterRef.get();

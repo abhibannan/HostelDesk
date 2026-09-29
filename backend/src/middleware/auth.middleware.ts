@@ -60,7 +60,7 @@ export async function requireAuth(
         .limit(1)
         .get();
 
-      if (!emailSnapshot.empty) {
+      if (!emailSnapshot.empty && emailSnapshot.docs[0]) {
         userDocument = emailSnapshot.docs[0];
         // Auto-link the new Firebase UID
         await userDocument.ref.update({

@@ -15,8 +15,9 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { COLORS } from "../constants/theme";
-import { Fee, Hostel, Payment, Repair, Renter, User } from "../types";
+import { COLORS, DARK_COLORS, LIGHT_COLORS, ThemeMode } from "../constants/theme";
+import { API_URL, parseJsonResponse } from "../services/api";
+import { Fee, Hostel, Notification, Payment, Repair, Renter, User } from "../types";
 import { money, today } from "../utils/formatters";
 import { EmptyState } from "../components/common";
 
@@ -27,6 +28,9 @@ interface RenterPortalScreenProps {
   fees: Fee[];
   payments: Payment[];
   repairs: Repair[];
+  notifications: Notification[];
+  token?: string | null;
+  request?: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   onRefresh: () => void;
   onLogout: () => void;
   onSubmitProof: (params: {
@@ -51,12 +55,143 @@ export function RenterPortalScreen({
   fees,
   payments,
   repairs,
+  notifications,
+  token,
+  request,
   onRefresh,
   onLogout,
   onSubmitProof,
   onSubmitRepair,
 }: RenterPortalScreenProps) {
-  const [activeTab, setActiveTab] = useState<"details" | "fees" | "repairs">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "fees" | "repairs" | "notices" | "settings">("details");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const theme = themeMode === "dark" ? DARK_COLORS : LIGHT_COLORS;
+
+  // Password Management State
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  async function handleChangePassword() {
+    setPasswordMsg(null);
+    if (!newPassword || newPassword.length < 6) {
+      setPasswordMsg({ text: "Password must be at least 6 characters.", type: "error" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg({ text: "Passwords do not match.", type: "error" });
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      if (request) {
+        await request("/auth/change-password", {
+          method: "POST",
+          body: JSON.stringify({ password: newPassword }),
+        });
+      } else if (token) {
+        const response = await fetch(`${API_URL}/auth/change-password`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ password: newPassword }),
+        });
+        const data = await parseJsonResponse(response);
+        if (!response.ok) {
+          throw new Error(String((data as any)?.message || "Failed to update password."));
+        }
+      } else {
+        throw new Error("You are not signed in.");
+      }
+
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordMsg({
+        text: "Password saved successfully! You can now use this password to sign in.",
+        type: "success",
+      });
+      Alert.alert(
+        "Password Saved",
+        "Your password has been created/updated successfully. You can now log into the Resident Portal anytime using your email and password.",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to change password.";
+      setPasswordMsg({ text: msg, type: "error" });
+      Alert.alert("Password Error", msg);
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  async function handleDeleteNotification(notifId: string) {
+    Alert.alert(
+      "Delete Notification",
+      "Are you sure you want to remove this notification?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (request) {
+                await request(`/notifications/${notifId}`, { method: "DELETE" });
+              } else if (token) {
+                await fetch(`${API_URL}/notifications/${notifId}`, {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+              }
+              onRefresh();
+            } catch (err) {
+              Alert.alert(
+                "Error",
+                err instanceof Error ? err.message : "Failed to delete notification.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  async function handleClearAllNotifications() {
+    Alert.alert(
+      "Clear All Notifications",
+      "Are you sure you want to delete all notifications from your feed?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (request) {
+                await request("/notifications/me/clear-all", { method: "DELETE" });
+              } else if (token) {
+                await fetch(`${API_URL}/notifications/me/clear-all`, {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+              }
+              onRefresh();
+            } catch (err) {
+              Alert.alert(
+                "Error",
+                err instanceof Error ? err.message : "Failed to clear notifications.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
 
   // Proof Upload Modal State
   const [showProofModal, setShowProofModal] = useState(false);
@@ -229,73 +364,144 @@ export function RenterPortalScreen({
     : "Room Assigned";
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Top Renter Bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <View style={styles.topBarInfo}>
-          <Text style={styles.topGreeting}>Welcome,</Text>
-          <Text style={styles.topName} numberOfLines={1}>
+          <Text style={[styles.topGreeting, { color: theme.secondary }]}>Welcome,</Text>
+          <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>
             {renterName}
           </Text>
           <View style={styles.hostelBadge}>
-            <Ionicons name="business" size={13} color={COLORS.primary} />
-            <Text style={styles.hostelBadgeText} numberOfLines={1}>
+            <Ionicons name="business" size={13} color={theme.primary} />
+            <Text style={[styles.hostelBadgeText, { color: theme.primary }]} numberOfLines={1}>
               {hostel?.name || "StayNexa Hostel"}
             </Text>
           </View>
         </View>
 
         <View style={styles.topActions}>
-          <TouchableOpacity style={styles.iconBtn} onPress={onRefresh}>
-            <Ionicons name="refresh-outline" size={20} color={COLORS.primary} />
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: theme.primaryLight }]}
+            onPress={() => setThemeMode((m) => (m === "light" ? "dark" : "light"))}
+          >
+            <Ionicons
+              name={themeMode === "light" ? "moon-outline" : "sunny-outline"}
+              size={19}
+              color={theme.primary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: theme.primaryLight }]}
+            onPress={onRefresh}
+          >
+            <Ionicons name="refresh-outline" size={19} color={theme.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.iconBtn, styles.logoutBtn]} onPress={onLogout}>
-            <Ionicons name="log-out-outline" size={20} color={COLORS.danger} />
+            <Ionicons name="log-out-outline" size={19} color={theme.danger} />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Renter Segment Tabs */}
-      <View style={styles.tabNav}>
+      <View style={[styles.tabNav, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity
-          style={[styles.tabNavItem, activeTab === "details" && styles.tabNavItemActive]}
+          style={[styles.tabNavItem, activeTab === "details" && { borderBottomColor: theme.primary }]}
           onPress={() => setActiveTab("details")}
         >
           <Ionicons
             name={activeTab === "details" ? "person" : "person-outline"}
             size={18}
-            color={activeTab === "details" ? COLORS.primary : COLORS.secondary}
+            color={activeTab === "details" ? theme.primary : theme.secondary}
           />
-          <Text style={[styles.tabNavLabel, activeTab === "details" && styles.tabNavLabelActive]}>
-            My Details
+          <Text
+            style={[
+              styles.tabNavLabel,
+              { color: activeTab === "details" ? theme.primary : theme.secondary },
+              activeTab === "details" && styles.tabNavLabelActive,
+            ]}
+          >
+            Details
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabNavItem, activeTab === "fees" && styles.tabNavItemActive]}
+          style={[styles.tabNavItem, activeTab === "fees" && { borderBottomColor: theme.primary }]}
           onPress={() => setActiveTab("fees")}
         >
           <Ionicons
             name={activeTab === "fees" ? "wallet" : "wallet-outline"}
             size={18}
-            color={activeTab === "fees" ? COLORS.primary : COLORS.secondary}
+            color={activeTab === "fees" ? theme.primary : theme.secondary}
           />
-          <Text style={[styles.tabNavLabel, activeTab === "fees" && styles.tabNavLabelActive]}>
-            Payments & Fees
+          <Text
+            style={[
+              styles.tabNavLabel,
+              { color: activeTab === "fees" ? theme.primary : theme.secondary },
+              activeTab === "fees" && styles.tabNavLabelActive,
+            ]}
+          >
+            Fees
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabNavItem, activeTab === "repairs" && styles.tabNavItemActive]}
+          style={[styles.tabNavItem, activeTab === "repairs" && { borderBottomColor: theme.primary }]}
           onPress={() => setActiveTab("repairs")}
         >
           <Ionicons
             name={activeTab === "repairs" ? "construct" : "construct-outline"}
             size={18}
-            color={activeTab === "repairs" ? COLORS.primary : COLORS.secondary}
+            color={activeTab === "repairs" ? theme.primary : theme.secondary}
           />
-          <Text style={[styles.tabNavLabel, activeTab === "repairs" && styles.tabNavLabelActive]}>
-            Repairs ({repairs.length})
+          <Text
+            style={[
+              styles.tabNavLabel,
+              { color: activeTab === "repairs" ? theme.primary : theme.secondary },
+              activeTab === "repairs" && styles.tabNavLabelActive,
+            ]}
+          >
+            Repairs{repairs.length > 0 ? ` (${repairs.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabNavItem, activeTab === "notices" && { borderBottomColor: theme.primary }]}
+          onPress={() => setActiveTab("notices")}
+        >
+          <Ionicons
+            name={activeTab === "notices" ? "notifications" : "notifications-outline"}
+            size={18}
+            color={activeTab === "notices" ? theme.primary : theme.secondary}
+          />
+          <Text
+            style={[
+              styles.tabNavLabel,
+              { color: activeTab === "notices" ? theme.primary : theme.secondary },
+              activeTab === "notices" && styles.tabNavLabelActive,
+            ]}
+          >
+            Notices{notifications.length > 0 ? ` (${notifications.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabNavItem, activeTab === "settings" && { borderBottomColor: theme.primary }]}
+          onPress={() => setActiveTab("settings")}
+        >
+          <Ionicons
+            name={activeTab === "settings" ? "settings" : "settings-outline"}
+            size={18}
+            color={activeTab === "settings" ? theme.primary : theme.secondary}
+          />
+          <Text
+            style={[
+              styles.tabNavLabel,
+              { color: activeTab === "settings" ? theme.primary : theme.secondary },
+              activeTab === "settings" && styles.tabNavLabelActive,
+            ]}
+          >
+            Settings
           </Text>
         </TouchableOpacity>
       </View>
@@ -364,8 +570,25 @@ export function RenterPortalScreen({
               </View>
 
               <View style={styles.detailRow}>
+                <Text style={styles.detailKey}>Guardian Name</Text>
+                <Text style={styles.detailVal}>{renter?.guardianName || "—"}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
                 <Text style={styles.detailKey}>Guardian Phone</Text>
                 <Text style={styles.detailVal}>{renter?.guardianPhone || "—"}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={styles.detailKey}>Permanent Address</Text>
+                <Text style={styles.detailVal}>{user.address || renter?.user?.address || "—"}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={styles.detailKey}>City / State / PIN</Text>
+                <Text style={styles.detailVal}>
+                  {[user.city || renter?.user?.city, user.state || renter?.user?.state, user.pincode || renter?.user?.pincode].filter(Boolean).join(", ") || "—"}
+                </Text>
               </View>
             </View>
 
@@ -717,6 +940,362 @@ export function RenterPortalScreen({
             )}
           </View>
         )}
+
+        {/* ================= TAB 4: NOTICES & NOTIFICATIONS ================= */}
+        {activeTab === "notices" && (
+          <View style={styles.sectionContainer}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                  Notifications {notifications.length > 0 ? `(${notifications.length})` : ""}
+                </Text>
+                <Text style={[styles.sectionSubtitle, { color: theme.secondary }]}>
+                  View all previous announcements, fee reminders, and updates
+                </Text>
+              </View>
+
+              {notifications.length > 0 ? (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 5,
+                    backgroundColor: theme.dangerLight,
+                    paddingVertical: 7,
+                    paddingHorizontal: 12,
+                    borderRadius: 9,
+                  }}
+                  onPress={handleClearAllNotifications}
+                >
+                  <Ionicons name="trash-bin-outline" size={15} color={theme.danger} />
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: theme.danger }}>Clear All</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {notifications.length === 0 ? (
+              <EmptyState
+                icon="notifications-off-outline"
+                title="No Notifications"
+                description="All your previous notifications and announcements will appear here. Currently you are all caught up!"
+              />
+            ) : (
+              [...notifications]
+                .sort((a, b) =>
+                  String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+                )
+                .map((notif) => {
+                  const type = String(notif.type || "ANNOUNCEMENT").toUpperCase();
+                  const isUrgent = type === "URGENT" || type === "EMERGENCY" || type === "FEE_OVERDUE";
+                  const isAlert = type === "ALERT" || type === "WARNING" || type === "FEE_DUE";
+                  const bgColor = isUrgent
+                    ? theme.dangerLight
+                    : isAlert
+                    ? theme.warningLight
+                    : theme.primaryLight;
+                  const iconColor = isUrgent
+                    ? theme.danger
+                    : isAlert
+                    ? theme.warning
+                    : theme.primary;
+                  const icon = isUrgent
+                    ? "warning-outline"
+                    : isAlert
+                    ? "alert-circle-outline"
+                    : "megaphone-outline";
+
+                  return (
+                    <View
+                      key={notif.id}
+                      style={[
+                        styles.noticeCard,
+                        {
+                          backgroundColor: theme.card,
+                          borderColor: theme.border,
+                          borderLeftColor: iconColor,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.noticeIconWrap, { backgroundColor: bgColor }]}>
+                        <Ionicons name={icon as any} size={20} color={iconColor} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <Text style={[styles.noticeTitle, { color: theme.text, flex: 1, marginRight: 6 }]}>
+                            {notif.title || "Announcement"}
+                          </Text>
+                          <TouchableOpacity
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            onPress={() => handleDeleteNotification(notif.id)}
+                          >
+                            <Ionicons name="trash-outline" size={17} color={theme.secondary} />
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={[styles.noticeBody, { color: theme.secondary }]}>{notif.message}</Text>
+                        {notif.createdAt ? (
+                          <Text style={[styles.noticeDate, { color: theme.secondary }]}>
+                            {new Date(notif.createdAt).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+            )}
+          </View>
+        )}
+
+        {/* ================= TAB 5: SETTINGS ================= */}
+        {activeTab === "settings" && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Settings & Security</Text>
+                <Text style={[styles.sectionSubtitle, { color: theme.secondary }]}>
+                  Customize app appearance and update your resident account credentials
+                </Text>
+              </View>
+            </View>
+
+            {/* 1. Appearance & Theme Selection Card */}
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="color-palette-outline" size={20} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Appearance & Theme</Text>
+              </View>
+              <Text style={{ fontSize: 13, color: theme.secondary, marginBottom: 14 }}>
+                Switch between light and dark mode for a comfortable viewing experience.
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.themeOptionBtn,
+                    {
+                      borderColor: themeMode === "light" ? theme.primary : theme.border,
+                      backgroundColor: themeMode === "light" ? theme.primaryLight : theme.card,
+                    },
+                  ]}
+                  onPress={() => setThemeMode("light")}
+                >
+                  <Ionicons
+                    name="sunny"
+                    size={22}
+                    color={themeMode === "light" ? theme.primary : theme.secondary}
+                  />
+                  <Text
+                    style={[
+                      styles.themeOptionText,
+                      {
+                        color: themeMode === "light" ? theme.primary : theme.secondary,
+                        fontWeight: themeMode === "light" ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    Light Mode
+                  </Text>
+                  {themeMode === "light" ? (
+                    <Ionicons name="checkmark-circle" size={16} color={theme.primary} />
+                  ) : null}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.themeOptionBtn,
+                    {
+                      borderColor: themeMode === "dark" ? theme.primary : theme.border,
+                      backgroundColor: themeMode === "dark" ? theme.primaryLight : theme.card,
+                    },
+                  ]}
+                  onPress={() => setThemeMode("dark")}
+                >
+                  <Ionicons
+                    name="moon"
+                    size={22}
+                    color={themeMode === "dark" ? theme.primary : theme.secondary}
+                  />
+                  <Text
+                    style={[
+                      styles.themeOptionText,
+                      {
+                        color: themeMode === "dark" ? theme.primary : theme.secondary,
+                        fontWeight: themeMode === "dark" ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    Dark Mode
+                  </Text>
+                  {themeMode === "dark" ? (
+                    <Ionicons name="checkmark-circle" size={16} color={theme.primary} />
+                  ) : null}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 2. Create / Change Password Card */}
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="lock-closed-outline" size={20} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Make / Change Password</Text>
+              </View>
+              <Text style={{ fontSize: 13, color: theme.secondary, marginBottom: 14, lineHeight: 19 }}>
+                Set your personal password so you can sign in directly with your email ({user.email || renter?.email || "your registered email"}) without relying on an administrator.
+              </Text>
+
+              {passwordMsg ? (
+                <View
+                  style={[
+                    styles.feedbackBanner,
+                    {
+                      backgroundColor:
+                        passwordMsg.type === "success" ? theme.successLight : theme.dangerLight,
+                      borderColor:
+                        passwordMsg.type === "success" ? theme.success : theme.danger,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={passwordMsg.type === "success" ? "checkmark-circle" : "alert-circle"}
+                    size={18}
+                    color={passwordMsg.type === "success" ? theme.success : theme.danger}
+                  />
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontSize: 13,
+                      color: passwordMsg.type === "success" ? theme.success : theme.danger,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {passwordMsg.text}
+                  </Text>
+                </View>
+              ) : null}
+
+              <Text style={[styles.inputLabel, { color: theme.text }]}>New Password *</Text>
+              <View
+                style={[
+                  styles.passwordInputWrap,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}
+              >
+                <TextInput
+                  style={[styles.passwordInputText, { color: theme.text }]}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Minimum 6 characters"
+                  placeholderTextColor={theme.secondary}
+                  secureTextEntry={!showNewPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowNewPassword((v) => !v)}>
+                  <Ionicons
+                    name={showNewPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color={theme.secondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Confirm New Password *</Text>
+              <View
+                style={[
+                  styles.passwordInputWrap,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}
+              >
+                <TextInput
+                  style={[styles.passwordInputText, { color: theme.text }]}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Re-enter new password"
+                  placeholderTextColor={theme.secondary}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPassword((v) => !v)}>
+                  <Ionicons
+                    name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
+                    color={theme.secondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  { backgroundColor: theme.primary, marginTop: 4 },
+                  savingPassword && styles.btnDisabled,
+                ]}
+                onPress={handleChangePassword}
+                disabled={savingPassword}
+              >
+                {savingPassword ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="key-outline" size={19} color="#FFFFFF" />
+                    <Text style={styles.primaryButtonText}>Save New Password</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* 3. Account Overview Card */}
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.cardHeader}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Resident Account Overview</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailKey, { color: theme.secondary }]}>Resident Name</Text>
+                <Text style={[styles.detailVal, { color: theme.text }]}>{renterName}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailKey, { color: theme.secondary }]}>Registered Email</Text>
+                <Text style={[styles.detailVal, { color: theme.text }]}>{user.email || renter?.email || "—"}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailKey, { color: theme.secondary }]}>Room Number</Text>
+                <Text style={[styles.detailVal, { color: theme.primary, fontWeight: "700" }]}>{roomDisplay}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailKey, { color: theme.secondary }]}>Hostel Name</Text>
+                <Text style={[styles.detailVal, { color: theme.text }]}>{hostel?.name || "StayNexa"}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailKey, { color: theme.secondary }]}>Joining Date</Text>
+                <Text style={[styles.detailVal, { color: theme.text }]}>{renter?.joiningDate || "—"}</Text>
+              </View>
+            </View>
+
+            {/* 4. Sign Out Option */}
+            <TouchableOpacity
+              style={[styles.dangerOutlineBtn, { borderColor: theme.danger }]}
+              onPress={() => {
+                Alert.alert("Sign Out", "Are you sure you want to sign out of the Resident Portal?", [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Sign Out", style: "destructive", onPress: onLogout },
+                ]);
+              }}
+            >
+              <Ionicons name="log-out-outline" size={20} color={theme.danger} />
+              <Text style={[styles.dangerOutlineBtnText, { color: theme.danger }]}>Sign Out of Resident Portal</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* ================= MODAL: SUBMIT PROOF ================= */}
@@ -1027,11 +1606,12 @@ const styles = StyleSheet.create({
   },
   tabNavItem: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 2,
+    gap: 3,
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
@@ -1039,12 +1619,14 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.primary,
   },
   tabNavLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
     color: COLORS.secondary,
+    textAlign: "center",
   },
   tabNavLabelActive: {
     color: COLORS.primary,
+    fontWeight: "800",
   },
   scrollContent: {
     padding: 16,
@@ -1620,5 +2202,121 @@ const styles = StyleSheet.create({
   fullPreviewImage: {
     width: "90%",
     height: "80%",
+  },
+
+  // Notice card styles
+  noticeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: COLORS.background,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderLeftWidth: 4,
+    padding: 14,
+    marginBottom: 12,
+  },
+  noticeIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noticeTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  noticeBody: {
+    fontSize: 13,
+    color: COLORS.secondary,
+    lineHeight: 19,
+  },
+  noticeDate: {
+    marginTop: 6,
+    fontSize: 11,
+    color: COLORS.secondary,
+    fontStyle: "italic",
+  },
+  sectionHeaderRow: {
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  themeOptionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  themeOptionText: {
+    fontSize: 14,
+  },
+  passwordInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    minHeight: 48,
+    marginBottom: 14,
+  },
+  passwordInputText: {
+    flex: 1,
+    fontSize: 15,
+    minHeight: 46,
+  },
+  feedbackBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  primaryButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  dangerOutlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginTop: 8,
+    backgroundColor: "transparent",
+  },
+  dangerOutlineBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

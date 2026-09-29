@@ -14,6 +14,7 @@ const createNotificationSchema = z.object({
     "REPAIR_CREATED",
     "REPAIR_UPDATED",
     "SYSTEM",
+    "ANNOUNCEMENT",
   ]),
   title: z.string().trim().min(1).max(200),
   message: z.string().trim().min(1).max(1000),
@@ -94,20 +95,16 @@ router.post(
   },
 );
 
-// Get current user's notifications
+// Get current user's notifications (both targeted and broadcasts)
 router.get(
   "/me",
   requireAuth,
   async (req, res, next) => {
     try {
-      const snapshot = await db
-        .collection("notifications")
-        .where(
-          "userId",
-          "==",
-          req.authUser!.id,
-        )
-        .get();
+      const [personalSnapshot, broadcastSnapshot] = await Promise.all([
+        db.collection("notifications").where("userId", "==", req.authUser!.id).get(),
+        db.collection("notifications").where("userId", "==", "ALL").get(),
+      ]);
 
       type NotificationItem = {
         id: string;
@@ -123,38 +120,48 @@ router.get(
         readAt: string | null;
       };
 
-      const notifications: NotificationItem[] =
-        snapshot.docs.map((doc) => {
-          const data = doc.data();
+      const seenIds = new Set<string>();
+      const allDocs = [...personalSnapshot.docs, ...broadcastSnapshot.docs].filter((doc) => {
+        if (seenIds.has(doc.id)) return false;
+        seenIds.add(doc.id);
+        const data = doc.data();
+        if (Array.isArray(data.dismissedBy) && data.dismissedBy.includes(req.authUser!.id)) {
+          return false;
+        }
+        return true;
+      });
 
-          return {
-            id: doc.id,
-            userId: String(data.userId ?? ""),
-            type: String(data.type ?? ""),
-            title: String(data.title ?? ""),
-            message: String(data.message ?? ""),
-            hostelId:
-              data.hostelId == null
-                ? null
-                : String(data.hostelId),
-            entityType:
-              data.entityType == null
-                ? null
-                : String(data.entityType),
-            entityId:
-              data.entityId == null
-                ? null
-                : String(data.entityId),
-            read: Boolean(data.read),
-            createdAt: String(
-              data.createdAt ?? "",
-            ),
-            readAt:
-              data.readAt == null
-                ? null
-                : String(data.readAt),
-          };
-        });
+      const notifications: NotificationItem[] = allDocs.map((doc) => {
+        const data = doc.data();
+
+        return {
+          id: doc.id,
+          userId: String(data.userId ?? ""),
+          type: String(data.type ?? ""),
+          title: String(data.title ?? ""),
+          message: String(data.message ?? ""),
+          hostelId:
+            data.hostelId == null
+              ? null
+              : String(data.hostelId),
+          entityType:
+            data.entityType == null
+              ? null
+              : String(data.entityType),
+          entityId:
+            data.entityId == null
+              ? null
+              : String(data.entityId),
+          read: Boolean(data.read),
+          createdAt: String(
+            data.createdAt ?? "",
+          ),
+          readAt:
+            data.readAt == null
+              ? null
+              : String(data.readAt),
+        };
+      });
 
       notifications.sort((a, b) =>
         b.createdAt.localeCompare(
@@ -293,6 +300,342 @@ router.patch(
         message:
           "All notifications marked as read",
         count: snapshot.size,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Delete / Clear all notifications for current user
+router.delete(
+  "/me/clear-all",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const [personalSnapshot, broadcastSnapshot] = await Promise.all([
+        db.collection("notifications").where("userId", "==", req.authUser!.id).get(),
+        db.collection("notifications").where("userId", "==", "ALL").get(),
+      ]);
+
+      const batch = db.batch();
+      let clearedCount = 0;
+
+      // Delete personal notifications
+      personalSnapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+        clearedCount++;
+      });
+
+      // Dismiss broadcast notifications for this user
+      broadcastSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const dismissedBy = Array.isArray(data.dismissedBy) ? [...data.dismissedBy] : [];
+        if (!dismissedBy.includes(req.authUser!.id)) {
+          dismissedBy.push(req.authUser!.id);
+          batch.update(doc.ref, { dismissedBy });
+          clearedCount++;
+        }
+      });
+
+      if (clearedCount > 0) {
+        await batch.commit();
+      }
+
+      res.json({
+        message: "All notifications cleared successfully",
+        count: clearedCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Delete single notification
+router.delete(
+  "/:notificationId",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const notificationId = req.params.notificationId;
+      if (typeof notificationId !== "string") {
+        res.status(400).json({ message: "Invalid notification ID" });
+        return;
+      }
+
+      const notifRef = db.collection("notifications").doc(notificationId);
+      const notifDoc = await notifRef.get();
+
+      if (!notifDoc.exists) {
+        res.status(404).json({ message: "Notification not found" });
+        return;
+      }
+
+      const notifData = notifDoc.data();
+      const isOwner = notifData?.userId === req.authUser!.id;
+      const isAdmin = req.authUser?.role === "ADMIN" || req.authUser?.role === "SUPER_ADMIN";
+
+      if (notifData?.userId === "ALL") {
+        // Dismiss broadcast notification for this renter
+        const dismissedBy = Array.isArray(notifData.dismissedBy) ? [...notifData.dismissedBy] : [];
+        if (!dismissedBy.includes(req.authUser!.id)) {
+          dismissedBy.push(req.authUser!.id);
+          await notifRef.update({ dismissedBy });
+        }
+        res.json({ message: "Notification dismissed successfully", notificationId });
+        return;
+      }
+
+      if (!isOwner && !isAdmin) {
+        res.status(403).json({ message: "Access denied" });
+        return;
+      }
+
+      await notifRef.delete();
+
+      res.json({
+        message: "Notification deleted successfully",
+        notificationId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Broadcast notification to all active residents in a hostel or all hostels
+router.post(
+  "/broadcast",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({ message: "Only Admin can send broadcasts" });
+        return;
+      }
+
+      const { hostelId, title, message, type } = req.body;
+
+      if (!title || !message) {
+        res.status(400).json({ message: "Title and message are required" });
+        return;
+      }
+
+      const batch = db.batch();
+      const now = new Date().toISOString();
+
+      // Always create the master broadcast announcement for the hostel/global feed
+      const broadcastMasterRef = db.collection("notifications").doc();
+      batch.set(broadcastMasterRef, {
+        id: broadcastMasterRef.id,
+        userId: "ALL",
+        type: type || "ANNOUNCEMENT",
+        title: String(title).trim(),
+        message: String(message).trim(),
+        hostelId: hostelId && hostelId !== "ALL" ? hostelId : "ALL",
+        entityType: "BROADCAST",
+        entityId: null,
+        read: false,
+        readAt: null,
+        createdAt: now,
+      });
+
+      let rentersQuery: FirebaseFirestore.Query = db
+        .collection("renters")
+        .where("status", "==", "ACTIVE");
+
+      if (hostelId && hostelId !== "ALL") {
+        rentersQuery = rentersQuery.where("hostelId", "==", hostelId);
+      }
+
+      const rentersSnapshot = await rentersQuery.get();
+      let sentCount = 0;
+      const seenUserIds = new Set<string>();
+
+      for (const renterDoc of rentersSnapshot.docs) {
+        const renter = renterDoc.data();
+        const userId = renter.userId;
+        if (!userId || seenUserIds.has(userId)) continue;
+        seenUserIds.add(userId);
+
+        const notifRef = db.collection("notifications").doc();
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId,
+          type: type || "ANNOUNCEMENT",
+          title: String(title).trim(),
+          message: String(message).trim(),
+          hostelId: renter.hostelId || null,
+          entityType: "BROADCAST",
+          entityId: null,
+          read: false,
+          readAt: null,
+          createdAt: now,
+        });
+        sentCount++;
+      }
+
+      await batch.commit();
+
+      res.status(201).json({
+        message:
+          sentCount > 0
+            ? `Broadcast published and sent to ${sentCount} resident${sentCount === 1 ? "" : "s"} successfully`
+            : "Broadcast announcement published successfully to hostel bulletin",
+        count: sentCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Send targeted fee reminder for a specific fee
+router.post(
+  "/remind-fee",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({ message: "Only Admin can send fee reminders" });
+        return;
+      }
+
+      const { feeId, customMessage } = req.body;
+
+      if (!feeId) {
+        res.status(400).json({ message: "feeId is required" });
+        return;
+      }
+
+      const feeDoc = await db.collection("fees").doc(feeId).get();
+      if (!feeDoc.exists) {
+        res.status(404).json({ message: "Fee not found" });
+        return;
+      }
+
+      const fee = feeDoc.data()!;
+      const renterDoc = await db.collection("renters").doc(fee.renterId).get();
+      if (!renterDoc.exists) {
+        res.status(404).json({ message: "Renter not found" });
+        return;
+      }
+
+      const renter = renterDoc.data()!;
+      const remainingAmount = Number(fee.amount || 0) - Number(fee.paidAmount || 0);
+      const isOverdue = fee.status === "OVERDUE" || (fee.dueDate && new Date().toISOString().slice(0, 10) > fee.dueDate);
+
+      const notifRef = db.collection("notifications").doc();
+      const now = new Date().toISOString();
+
+      await notifRef.set({
+        id: notifRef.id,
+        userId: renter.userId,
+        type: isOverdue ? "FEE_OVERDUE" : "FEE_DUE",
+        title: isOverdue ? `Overdue Fee Reminder: ₹${remainingAmount}` : `Rent Fee Reminder: ₹${remainingAmount}`,
+        message: customMessage || `Notice from Hostel Admin: Your fee of ₹${remainingAmount} for ${fee.month} is ${isOverdue ? 'overdue' : 'pending'}. Due date: ${fee.dueDate}. Please clear your payment promptly.`,
+        hostelId: fee.hostelId || null,
+        entityType: "FEE",
+        entityId: feeId,
+        read: false,
+        readAt: null,
+        createdAt: now,
+      });
+
+      res.status(201).json({
+        message: "Fee reminder sent successfully to the renter",
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Send fee reminder to all unpaid renters in a hostel
+router.post(
+  "/remind-all-unpaid",
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({ message: "Only Admin can send fee reminders" });
+        return;
+      }
+
+      const { hostelId } = req.body;
+
+      let feesQuery: FirebaseFirestore.Query = db
+        .collection("fees")
+        .where("status", "in", ["PENDING", "OVERDUE", "PARTIALLY_PAID"]);
+
+      if (hostelId && hostelId !== "ALL") {
+        feesQuery = feesQuery.where("hostelId", "==", hostelId);
+      }
+
+      const feesSnapshot = await feesQuery.get();
+
+      if (feesSnapshot.empty) {
+        res.json({ message: "No unpaid or overdue fees found", count: 0 });
+        return;
+      }
+
+      const batch = db.batch();
+      const now = new Date().toISOString();
+      let sentCount = 0;
+      const renterUserMap = new Map<string, string>();
+
+      for (const feeDoc of feesSnapshot.docs) {
+        const fee = feeDoc.data();
+        if (!fee.renterId) continue;
+
+        let userId = renterUserMap.get(fee.renterId);
+        if (!userId) {
+          const renterDoc = await db.collection("renters").doc(fee.renterId).get();
+          if (renterDoc.exists) {
+            userId = renterDoc.data()?.userId;
+            if (userId) renterUserMap.set(fee.renterId, userId);
+          }
+        }
+
+        if (!userId) continue;
+
+        const remainingAmount = Number(fee.amount || 0) - Number(fee.paidAmount || 0);
+        const isOverdue = fee.status === "OVERDUE" || (fee.dueDate && new Date().toISOString().slice(0, 10) > fee.dueDate);
+
+        const notifRef = db.collection("notifications").doc();
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId,
+          type: isOverdue ? "FEE_OVERDUE" : "FEE_DUE",
+          title: isOverdue ? `Overdue Rent Reminder: ₹${remainingAmount}` : `Fee Payment Reminder: ₹${remainingAmount}`,
+          message: `Notice from Hostel Admin: Your fee of ₹${remainingAmount} for ${fee.month} is ${isOverdue ? 'overdue' : 'pending'}. Due date: ${fee.dueDate}. Please clear your dues.`,
+          hostelId: fee.hostelId || null,
+          entityType: "FEE",
+          entityId: feeDoc.id,
+          read: false,
+          readAt: null,
+          createdAt: now,
+        });
+        sentCount++;
+      }
+
+      if (sentCount > 0) {
+        await batch.commit();
+      }
+
+      res.status(201).json({
+        message: `Reminders sent to ${sentCount} unpaid fee record${sentCount === 1 ? "" : "s"} successfully`,
+        count: sentCount,
       });
     } catch (error) {
       next(error);

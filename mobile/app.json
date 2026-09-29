@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "StayNexa",
     "slug": "mobile",
     "scheme": "staynexa",
     "version": "1.0.0",
@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.staynexa.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

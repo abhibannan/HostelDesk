@@ -162,6 +162,183 @@ router.post(
   },
 );
 
+// Generate recurring monthly fees for all active renters in hostel
+router.post(
+  "/:hostelId/fees/generate-monthly",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({ message: "Access denied" });
+        return;
+      }
+
+      const hostelId = req.params.hostelId;
+      const { month, dueDate, description } = req.body;
+
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        res.status(400).json({ message: "Month must be in YYYY-MM format" });
+        return;
+      }
+
+      if (!dueDate) {
+        res.status(400).json({ message: "Due date is required" });
+        return;
+      }
+
+      const rentersSnapshot = await db
+        .collection("renters")
+        .where("hostelId", "==", hostelId)
+        .where("status", "==", "ACTIVE")
+        .get();
+
+      if (rentersSnapshot.empty) {
+        res.json({ message: "No active renters found in this hostel", generatedCount: 0, skippedCount: 0 });
+        return;
+      }
+
+      const existingFeesSnapshot = await db
+        .collection("fees")
+        .where("hostelId", "==", hostelId)
+        .where("month", "==", month)
+        .get();
+
+      const existingRenterIds = new Set(
+        existingFeesSnapshot.docs.map((doc) => doc.data().renterId)
+      );
+
+      const batch = db.batch();
+      const now = new Date().toISOString();
+      let generatedCount = 0;
+      let skippedCount = 0;
+
+      for (const renterDoc of rentersSnapshot.docs) {
+        const renter = renterDoc.data();
+        if (existingRenterIds.has(renterDoc.id)) {
+          skippedCount++;
+          continue;
+        }
+
+        const amount = Number(renter.monthlyFee || 0);
+        if (amount <= 0) {
+          skippedCount++;
+          continue;
+        }
+
+        const feeRef = db.collection("fees").doc();
+        batch.set(feeRef, {
+          id: feeRef.id,
+          hostelId,
+          renterId: renterDoc.id,
+          month,
+          amount,
+          paidAmount: 0,
+          dueDate,
+          description: description || `Rent fee for ${month}`,
+          status: "PENDING",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        if (renter.userId) {
+          const notifRef = db.collection("notifications").doc();
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: renter.userId,
+            type: "FEE_DUE",
+            title: `Rent Due for ${month}: ₹${amount}`,
+            message: `Your monthly rent of ₹${amount} for ${month} is due on ${dueDate}. Please pay promptly.`,
+            hostelId,
+            entityType: "FEE",
+            entityId: feeRef.id,
+            read: false,
+            readAt: null,
+            createdAt: now,
+          });
+        }
+
+        generatedCount++;
+      }
+
+      if (generatedCount > 0) {
+        await batch.commit();
+        await writeAuditLog({
+          actorId: req.authUser.id,
+          action: "GENERATE_MONTHLY_FEES",
+          entityType: "FEE",
+          entityId: String(hostelId),
+          metadata: { month, dueDate, generatedCount, skippedCount },
+        });
+      }
+
+      res.status(201).json({
+        message: `Generated ${generatedCount} fee record${generatedCount === 1 ? '' : 's'} (${skippedCount} already existed or skipped)`,
+        generatedCount,
+        skippedCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Scan and update overdue fees
+router.post(
+  "/:hostelId/fees/mark-overdue",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({ message: "Access denied" });
+        return;
+      }
+
+      const hostelId = req.params.hostelId;
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      const feesSnapshot = await db
+        .collection("fees")
+        .where("hostelId", "==", hostelId)
+        .where("status", "in", ["PENDING", "PARTIALLY_PAID"])
+        .get();
+
+      const batch = db.batch();
+      let overdueCount = 0;
+      const now = new Date().toISOString();
+
+      feesSnapshot.docs.forEach((doc) => {
+        const fee = doc.data();
+        if (fee.dueDate && fee.dueDate < todayStr) {
+          batch.update(doc.ref, {
+            status: "OVERDUE",
+            updatedAt: now,
+          });
+          overdueCount++;
+        }
+      });
+
+      if (overdueCount > 0) {
+        await batch.commit();
+      }
+
+      res.json({
+        message: `Updated ${overdueCount} fee${overdueCount === 1 ? '' : 's'} to OVERDUE`,
+        overdueCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // List fees for hostel
 router.get(
   "/:hostelId/fees",

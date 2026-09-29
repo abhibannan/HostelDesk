@@ -572,4 +572,71 @@ router.get(
   },
 );
 
+router.get(
+  "/:hostelId/notifications",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      const hostelId = req.params.hostelId;
+
+      if (typeof hostelId !== "string") {
+        res.status(400).json({
+          message: "Invalid hostel ID",
+        });
+        return;
+      }
+
+      const [hostelSnap, allSnap] = await Promise.all([
+        db.collection("notifications").where("hostelId", "==", hostelId).get(),
+        db.collection("notifications").where("hostelId", "==", "ALL").get(),
+      ]);
+
+      const seen = new Set<string>();
+      const notifications: Array<{
+        id: string;
+        userId: string;
+        type: string;
+        title: string;
+        message: string;
+        hostelId: string | null;
+        entityType: string | null;
+        entityId: string | null;
+        read: boolean;
+        createdAt: string;
+        readAt: string | null;
+      }> = [];
+
+      for (const snap of [hostelSnap, allSnap]) {
+        for (const doc of snap.docs) {
+          if (seen.has(doc.id)) continue;
+          seen.add(doc.id);
+          const data = doc.data();
+          notifications.push({
+            id: doc.id,
+            userId: String(data.userId ?? ""),
+            type: String(data.type ?? "ANNOUNCEMENT"),
+            title: String(data.title ?? ""),
+            message: String(data.message ?? ""),
+            hostelId: data.hostelId == null ? null : String(data.hostelId),
+            entityType: data.entityType == null ? null : String(data.entityType),
+            entityId: data.entityId == null ? null : String(data.entityId),
+            read: Boolean(data.read),
+            createdAt: String(data.createdAt ?? ""),
+            readAt: data.readAt == null ? null : String(data.readAt),
+          });
+        }
+      }
+
+      notifications.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+      res.json({
+        notifications,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 export default router;

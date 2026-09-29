@@ -10,9 +10,9 @@ interface DonutChartProps {
 }
 
 export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
-  const size = 190;
-  const strokeWidth = 24;
-  const radius = 66;
+  const size = 135;
+  const strokeWidth = 16;
+  const radius = 48;
   const circumference = 2 * Math.PI * radius;
   const total = data.reduce((sum, item) => sum + Math.max(0, item.value), 0);
 
@@ -52,10 +52,10 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
             strokeWidth={strokeWidth}
           />
           {circles}
-          <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="23" fontWeight="800" fill={COLORS.text}>
+          <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="18" fontWeight="800" fill={COLORS.text}>
             {centerText}
           </SvgText>
-          <SvgText x={size / 2} y={size / 2 + 19} textAnchor="middle" fontSize="11" fill={COLORS.secondary}>
+          <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="10" fill={COLORS.secondary}>
             {centerSub}
           </SvgText>
         </Svg>
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
   chartBlock: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
   legendList: { flex: 1, marginLeft: 13, gap: 9 },
   legendRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  legendLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  legendLeft: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: 8 },
   legendDot: { width: 9, height: 9, borderRadius: 9, marginRight: 7 },
   legendLabel: { fontSize: 12, color: COLORS.secondary, flexShrink: 1 },
   legendValue: { fontSize: 13, fontWeight: "800", color: COLORS.text },

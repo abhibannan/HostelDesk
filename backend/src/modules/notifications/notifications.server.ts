@@ -7,7 +7,8 @@ export type NotificationType =
   | "PAYMENT_RECORDED"
   | "REPAIR_CREATED"
   | "REPAIR_UPDATED"
-  | "SYSTEM";
+  | "SYSTEM"
+  | "ANNOUNCEMENT";
 
 export interface CreateNotificationInput {
   userId: string;
