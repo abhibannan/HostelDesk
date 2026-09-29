@@ -12,7 +12,7 @@ const submitPaymentProofSchema = z.object({
   feeId: z.string().min(1),
   amount: z.number().positive(),
   paymentDate: z.string().min(1),
-  proofUrl: z.string().url(),
+  proofUrl: z.string().min(1),
   reference: z.string().trim().max(200).optional(),
   notes: z.string().trim().max(500).optional(),
 });
