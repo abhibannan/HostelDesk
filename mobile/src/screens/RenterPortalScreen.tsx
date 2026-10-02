@@ -37,7 +37,8 @@ interface RenterPortalScreenProps {
     feeId: string;
     amount: number;
     paymentDate: string;
-    proofUrl: string;
+    proofUri: string;
+    proofMimeType?: string | null;
     reference?: string;
     notes?: string;
   }) => Promise<void>;
@@ -202,7 +203,7 @@ export function RenterPortalScreen({
   const [proofReference, setProofReference] = useState("");
   const [proofNotes, setProofNotes] = useState("");
   const [proofImageUri, setProofImageUri] = useState<string | null>(null);
-  const [proofImageBase64, setProofImageBase64] = useState<string | null>(null);
+  const [proofMimeType, setProofMimeType] = useState<string | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
 
   // Repair Complaint Modal State
@@ -239,13 +240,12 @@ export function RenterPortalScreen({
         mediaTypes: ["images"],
         allowsEditing: true,
         quality: 0.6,
-        base64: true,
       });
 
       if (!result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
         setProofImageUri(asset.uri);
-        setProofImageBase64(asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri);
+        setProofMimeType(asset.mimeType ?? null);
       }
     } catch {
       Alert.alert("Error", "Could not pick image from gallery.");
@@ -264,13 +264,12 @@ export function RenterPortalScreen({
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.6,
-        base64: true,
       });
 
       if (!result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
         setProofImageUri(asset.uri);
-        setProofImageBase64(asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri);
+        setProofMimeType(asset.mimeType ?? null);
       }
     } catch {
       Alert.alert("Error", "Could not open camera.");
@@ -286,7 +285,7 @@ export function RenterPortalScreen({
     setProofReference("");
     setProofNotes("");
     setProofImageUri(null);
-    setProofImageBase64(null);
+    setProofMimeType(null);
     setShowProofModal(true);
   }
 
@@ -301,7 +300,7 @@ export function RenterPortalScreen({
       Alert.alert("Invalid Amount", "Please enter a valid payment amount.");
       return;
     }
-    if (!proofImageBase64) {
+    if (!proofImageUri) {
       Alert.alert("Missing Proof", "Please attach a photo or screenshot of your payment receipt/UPI.");
       return;
     }
@@ -312,7 +311,8 @@ export function RenterPortalScreen({
         feeId: selectedFeeId,
         amount: amt,
         paymentDate: proofDate || today(),
-        proofUrl: proofImageBase64,
+        proofUri: proofImageUri,
+        proofMimeType,
         reference: proofReference.trim() || undefined,
         notes: proofNotes.trim() || undefined,
       });
@@ -1393,7 +1393,7 @@ export function RenterPortalScreen({
                     style={styles.removeImageBtn}
                     onPress={() => {
                       setProofImageUri(null);
-                      setProofImageBase64(null);
+                      setProofMimeType(null);
                     }}
                   >
                     <Ionicons name="trash-outline" size={18} color="#FFFFFF" />

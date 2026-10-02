@@ -33,8 +33,10 @@ import * as WebBrowser from "expo-web-browser";
 import { COLORS } from "./src/constants/theme";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
 import { useExpoPushNotifications } from "./src/hooks/useExpoPushNotifications";
+import { useNotificationSync } from "./src/hooks/useNotificationSync";
 import { Hostel, Renter, Tab } from "./src/types";
 import { dashboardFrom } from "./src/utils/formatters";
+import { API_URL, parseJsonResponse, warmupApi } from "./src/services/api";
 
 // Hooks
 import { useAuth, AuthCallbacks } from "./src/hooks/useAuth";
@@ -71,7 +73,7 @@ WebBrowser.maybeCompleteAuthSession();
 // ─────────────────────────────────────────────────────────────────────────────
 function AppContent() {
   const { colors, toggleTheme, isDark, themeMode } = useTheme();
-  const { scheduleLocalNotification } = useExpoPushNotifications();
+  const { getExpoPushToken, scheduleLocalNotification } = useExpoPushNotifications();
   const [page, setPage] = useState<Tab>("dashboard");
   const [renterSearch, setRenterSearch] = useState("");
 
@@ -111,6 +113,12 @@ function AppContent() {
   const auth = useAuth(authCallbacks);
   // Wire the ref once auth is available
   setCurrentRenterDocRef.current = auth.setCurrentRenterDoc;
+
+  useNotificationSync(
+    data.notifications,
+    scheduleLocalNotification,
+    Boolean(auth.token),
+  );
 
   // ── Room actions ────────────────────────────────────────────────────────────
   const rooms = useRoomActions({
@@ -161,16 +169,43 @@ function AppContent() {
     feeId: string;
     amount: number;
     paymentDate: string;
-    proofUrl: string;
+    proofUri: string;
+    proofMimeType?: string | null;
     reference?: string;
     notes?: string;
   }) {
     if (!auth.currentRenterDoc) throw new Error("Missing renter profile.");
+    if (!auth.token) throw new Error("You are not signed in.");
+
+    const form = new FormData();
+    form.append("file", {
+      uri: params.proofUri,
+      name: `payment-proof-${Date.now()}.jpg`,
+      type: params.proofMimeType || "image/jpeg",
+    } as never);
+    const uploadResponse = await fetch(`${API_URL}/uploads`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: form,
+    });
+    const uploadData = await parseJsonResponse(uploadResponse) as {
+      file?: { id?: string };
+      message?: string;
+    };
+    if (!uploadResponse.ok || !uploadData.file?.id) {
+      throw new Error(uploadData.message || "Unable to upload the payment proof.");
+    }
+
     await data.request(`/hostels/${data.selectedHostelId}/payment-proofs`, {
       method: "POST",
       body: JSON.stringify({
         renterId: auth.currentRenterDoc.id,
-        ...params,
+        feeId: params.feeId,
+        amount: params.amount,
+        paymentDate: params.paymentDate,
+        proofUploadId: uploadData.file.id,
+        ...(params.reference ? { reference: params.reference } : {}),
+        ...(params.notes ? { notes: params.notes } : {}),
       }),
     });
     if (auth.currentUser) {
@@ -208,29 +243,65 @@ function AppContent() {
 
   // ── Auto-refresh effects ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!auth.token || !data.selectedHostelId) return;
-    void data.refreshAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.token, data.selectedHostelId]);
+    warmupApi();
+  }, []);
+
+  useEffect(() => {
+    if (!auth.token) return;
+
+    void (async () => {
+      const pushToken = await getExpoPushToken();
+      if (!pushToken) return;
+      await fetch(`${API_URL}/notifications/push-token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ pushToken, platform: Platform.OS }),
+      }).catch(() => {
+        // Retry on a future app start when the network is available.
+      });
+    })();
+  }, [auth.token, getExpoPushToken]);
 
   useEffect(() => {
     if (!auth.token || !data.selectedHostelId) return;
+    if (auth.currentUser?.role === "RENTER") return; // Renters don't need admin refreshAll
+    void data.refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.token, data.selectedHostelId, auth.currentUser?.role]);
+
+  useEffect(() => {
+    if (!auth.token || !data.selectedHostelId) return;
+    if (auth.currentUser?.role === "RENTER") return;
     const timer = setInterval(() => {
       void data.refreshHostelData(data.selectedHostelId);
     }, 30000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.token, data.selectedHostelId]);
+  }, [auth.token, data.selectedHostelId, auth.currentUser?.role]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && auth.token && data.selectedHostelId) {
-        void data.refreshHostelData(data.selectedHostelId);
+        if (auth.currentUser?.role === "RENTER") {
+          if (auth.currentUser?.id) {
+            void data.loadRenterData(
+              auth.token,
+              data.selectedHostelId,
+              auth.currentUser.id,
+              auth.setCurrentRenterDoc,
+            );
+          }
+        } else {
+          void data.refreshHostelData(data.selectedHostelId);
+        }
       }
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.token, data.selectedHostelId]);
+  }, [auth.token, data.selectedHostelId, auth.currentUser]);
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const paymentProofStats = useMemo(() => {
@@ -278,6 +349,41 @@ function AppContent() {
     });
     return months;
   }, [data.payments]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — session check (prevents login screen from flashing on startup)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (auth.initializing) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            backgroundColor: colors.background,
+            justifyContent: "center",
+            alignItems: "center",
+          },
+        ]}
+      >
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text
+          style={{
+            marginTop: 16,
+            color: colors.secondary,
+            fontSize: 14,
+            fontWeight: "600",
+            letterSpacing: 0.5,
+          }}
+        >
+          StayNexa
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — not authenticated

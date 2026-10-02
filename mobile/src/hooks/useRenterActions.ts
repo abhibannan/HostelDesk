@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Alert } from "react-native";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../../firebase";
 import { Renter } from "../types";
 import { getName, today } from "../utils/formatters";
 
@@ -148,10 +150,25 @@ export function useRenterActions(cb: RenterActionsCallbacks) {
           securityDeposit: deposit,
         }),
       });
+
+      let setupEmailSent = true;
+      try {
+        // Firebase sends a time-limited setup link. The renter chooses the
+        // password themselves, so no password is ever sent over email.
+        await sendPasswordResetEmail(auth, emailValue);
+      } catch (error) {
+        console.warn("Unable to send renter password setup email:", error);
+        setupEmailSent = false;
+      }
       setShowRenterModal(false);
       resetRenterForm();
       await cb.onRefresh();
-      Alert.alert("Renter added", "The renter account was created successfully.");
+      Alert.alert(
+        "Renter added",
+        setupEmailSent
+          ? "The account was created and a secure password setup link was sent to the renter's email."
+          : "The account was created, but the password setup email could not be sent. Use the renter login screen to request a new setup link.",
+      );
     } catch (err) {
       Alert.alert(
         "Unable to add renter",

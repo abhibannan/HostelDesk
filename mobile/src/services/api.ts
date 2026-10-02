@@ -1,6 +1,18 @@
 // Default to local development server, or replace with your online hosted URL (e.g., Render/Railway)
 export const API_URL = "https://staynexa-1.onrender.com/api/v1";
 
+let hasWarmedUp = false;
+export function warmupApi(): void {
+  if (hasWarmedUp) return;
+  hasWarmedUp = true;
+  fetch(`${API_URL}/health`, { method: "GET" }).catch(() => {
+    // Retry once if Render was sleeping
+    setTimeout(() => {
+      fetch(`${API_URL}/health`, { method: "GET" }).catch(() => {});
+    }, 3000);
+  });
+}
+
 export async function parseJsonResponse(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return {};

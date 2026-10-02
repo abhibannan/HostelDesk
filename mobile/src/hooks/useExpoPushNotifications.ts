@@ -1,29 +1,25 @@
-/**
- * useExpoPushNotifications.ts
- *
- * Safe wrapper around expo-notifications that gracefully no-ops in Expo Go.
- * Full OS notifications only work in a standalone/dev-client build.
- *
- * In Expo Go → all calls silently succeed without doing anything.
- * In a real build → full OS notification channel + permissions + scheduling.
- */
-
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { Platform } from "react-native";
 import Constants from "expo-constants";
 
-/** True when running inside Expo Go (not a standalone build or dev client) */
-const IS_EXPO_GO =
+const isExpoGo =
   Constants.appOwnership === "expo" ||
   (Constants.executionEnvironment !== "standalone" &&
     Constants.executionEnvironment !== "storeClient");
 
-// Only import Notifications if we're NOT in Expo Go to avoid module errors
 let Notifications: typeof import("expo-notifications") | null = null;
-if (!IS_EXPO_GO) {
+if (!isExpoGo) {
   try {
-    // Dynamic require so bundler doesn't crash in Expo Go
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // Keep Expo Go usable while enabling real push delivery in development and release builds.
     Notifications = require("expo-notifications") as typeof import("expo-notifications");
+  } catch {
+    Notifications = null;
+  }
+}
+
+export function useExpoPushNotifications() {
+  useEffect(() => {
+    if (!Notifications) return;
 
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -34,61 +30,54 @@ if (!IS_EXPO_GO) {
         shouldShowList: true,
       }),
     });
+  }, []);
 
-  } catch {
-    Notifications = null;
-  }
-}
+  const getExpoPushToken = useCallback(async (): Promise<string | null> => {
+    if (!Notifications) return null;
 
-async function _requestPermissions() {
-  if (!Notifications) return;
-  try {
-    const { Platform } = await import("react-native");
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("staynex-default", {
-        name: "StayNexa Notifications",
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: "#2563EB",
-        sound: "default",
-      });
+    try {
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync("staynexa", {
+          name: "StayNexa",
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: "#2563EB",
+          sound: "default",
+        });
+      }
+
+      const existing = await Notifications.getPermissionsAsync();
+      const permission = existing.status === "granted"
+        ? existing
+        : await Notifications.requestPermissionsAsync();
+      if (permission.status !== "granted") return null;
+
+      const projectId =
+        Constants.expoConfig?.extra?.eas?.projectId ??
+        Constants.easConfig?.projectId;
+      if (!projectId) return null;
+
+      return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } catch (error) {
+      console.warn("Unable to register for push notifications:", error);
+      return null;
     }
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== "granted") {
-      await Notifications.requestPermissionsAsync();
-    }
-  } catch {
-    // Ignore — Expo Go or permission denied
-  }
-}
+  }, []);
 
-// Kick off permission request eagerly (non-blocking)
-void _requestPermissions();
-
-export function useExpoPushNotifications() {
-  /**
-   * Fire an immediate local notification.
-   * Silently no-ops in Expo Go or if permissions not granted.
-   */
   const scheduleLocalNotification = useCallback(
     async (title: string, body: string, data?: Record<string, unknown>) => {
-      if (!Notifications) return; // Expo Go — skip silently
+      if (!Notifications) return;
       try {
         await Notifications.scheduleNotificationAsync({
-          content: {
-            title,
-            body,
-            data: data ?? {},
-            sound: "default",
-          },
-          trigger: null, // fire immediately
+          content: { title, body, data: data ?? {}, sound: "default" },
+          trigger: null,
         });
-      } catch (err) {
-        console.warn("[PushNotif] Could not send notification:", err);
+      } catch (error) {
+        console.warn("Unable to show local notification:", error);
       }
     },
-    []
+    [],
   );
 
-  return { scheduleLocalNotification };
+  return { getExpoPushToken, scheduleLocalNotification };
 }

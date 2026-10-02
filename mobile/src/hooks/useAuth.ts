@@ -1,6 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  onIdTokenChanged,
   signInWithEmailAndPassword,
   signOut,
   GoogleAuthProvider,
@@ -9,38 +11,66 @@ import {
 } from "firebase/auth";
 import * as WebBrowser from "expo-web-browser";
 import { auth } from "../../firebase";
-import { API_URL, parseJsonResponse as jsonResponse } from "../services/api";
+import {
+  API_URL,
+  parseJsonResponse as jsonResponse,
+  warmupApi,
+} from "../services/api";
 import { Hostel, Renter, User } from "../types";
 import { listFrom, dashboardFrom } from "../utils/formatters";
+
+const SESSION_CACHE_KEY = "@staynexa_auth_session_v1";
+
+interface CachedSession {
+  token: string;
+  user: User;
+  role: "RENTER" | "ADMIN";
+  hostels?: Hostel[];
+  renterDoc?: Renter | null;
+  savedAt: number;
+}
 
 export interface AuthActions {
   token: string | null;
   currentUser: User | null;
   currentRenterDoc: Renter | null;
   setCurrentRenterDoc: (r: Renter | null) => void;
+
   loading: boolean;
+  initializing: boolean;
+
   error: string;
   setError: (e: string) => void;
+
   loginRole: "RENTER" | "ADMIN";
   setLoginRole: (r: "RENTER" | "ADMIN") => void;
+
   email: string;
   setEmail: (v: string) => void;
+
   password: string;
   setPassword: (v: string) => void;
+
   showPassword: boolean;
-  setShowPassword: (v: boolean | ((prev: boolean) => boolean)) => void;
+  setShowPassword: (
+    v: boolean | ((prev: boolean) => boolean),
+  ) => void;
+
   showRenterEmailFallback: boolean;
   setShowRenterEmailFallback: (v: boolean) => void;
+
   renterEmailInput: string;
   setRenterEmailInput: (v: string) => void;
+
   renterPasswordInput: string;
   setRenterPasswordInput: (v: string) => void;
+
   loginWithGoogle: () => Promise<void>;
   loginRenterWithEmail: () => Promise<void>;
   sendPasswordResetLink: (targetEmail?: string) => Promise<void>;
   loginAdmin: () => Promise<void>;
   logout: () => Promise<void>;
-  /** Exposed so host data hook can initialise after auth */
+
   handleAuthenticatedUser: (
     idToken: string,
     expectedRole?: "RENTER" | "ADMIN",
@@ -51,39 +81,94 @@ export interface AuthActions {
 export interface AuthCallbacks {
   onHostelsLoaded: (hostels: Hostel[], token: string) => void;
   onDashboardLoaded: (data: unknown) => void;
-  onRenterDataNeeded: (token: string, hostelId: string, userId: string) => void;
+  onRenterDataNeeded: (
+    token: string,
+    hostelId: string,
+    userId: string,
+  ) => void;
   onLogout: () => void;
 }
 
 export function useAuth(callbacks?: AuthCallbacks): AuthActions {
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentRenterDoc, setCurrentRenterDoc] = useState<Renter | null>(null);
+  const [currentRenterDoc, setCurrentRenterDoc] =
+    useState<Renter | null>(null);
 
   const [loading, setLoading] = useState(false);
+
+  // Used while checking for a previously saved session.
+  const [initializing, setInitializing] = useState(true);
+
   const [error, setError] = useState("");
 
-  const [loginRole, setLoginRole] = useState<"RENTER" | "ADMIN">("RENTER");
+  const [loginRole, setLoginRole] =
+    useState<"RENTER" | "ADMIN">("RENTER");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showRenterEmailFallback, setShowRenterEmailFallback] = useState(false);
+
+  const [showRenterEmailFallback, setShowRenterEmailFallback] =
+    useState(false);
+
   const [renterEmailInput, setRenterEmailInput] = useState("");
   const [renterPasswordInput, setRenterPasswordInput] = useState("");
 
-  const fetchHostels = useCallback(async (idToken: string): Promise<Hostel[]> => {
-    const response = await fetch(`${API_URL}/hostels`, {
-      headers: { Authorization: `Bearer ${idToken}` },
-    });
-    const data = await jsonResponse(response);
-    if (!response.ok) {
-      throw new Error(
-        String((data as Record<string, unknown>)?.message || "Unable to load hostels."),
-      );
+  const authInitialized = useRef(false);
+
+  // Keep wrapped setter that updates AsyncStorage cache in the background
+  const updateCurrentRenterDoc = useCallback((r: Renter | null) => {
+    setCurrentRenterDoc(r);
+    if (r) {
+      AsyncStorage.getItem(SESSION_CACHE_KEY)
+        .then((raw) => {
+          if (raw) {
+            try {
+              const parsed: CachedSession = JSON.parse(raw);
+              parsed.renterDoc = r;
+              void AsyncStorage.setItem(
+                SESSION_CACHE_KEY,
+                JSON.stringify(parsed),
+              );
+            } catch { }
+          }
+        })
+        .catch(() => { });
     }
-    return listFrom<Hostel>(data, "hostels");
   }, []);
 
+  const fetchHostels = useCallback(
+    async (idToken: string): Promise<Hostel[]> => {
+      const response = await fetch(`${API_URL}/hostels`, {
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      const data = await jsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(
+          String(
+            (data as Record<string, unknown>)?.message ||
+            "Unable to load hostels.",
+          ),
+        );
+      }
+
+      return listFrom<Hostel>(data, "hostels");
+    },
+    [],
+  );
+
+  /*
+   * ============================================================
+   * FAST AUTHENTICATION HANDLER
+   * ============================================================
+   * Parallelizes /auth/me and /hostels to cut round-trip latency in half.
+   * Immediately commits user and token so the UI transitions instantly.
+   */
   const handleAuthenticatedUser = useCallback(
     async (
       idToken: string,
@@ -91,13 +176,27 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       cb?: AuthCallbacks,
     ) => {
       const cbs = cb ?? callbacks;
-      const meResponse = await fetch(`${API_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const meData = await jsonResponse(meResponse);
+      const headers = {
+        Authorization: `Bearer ${idToken}`,
+      };
+
+      // 1. Fetch /auth/me and /hostels in parallel
+      const [meResponse, hostelsResponse] = await Promise.all([
+        fetch(`${API_URL}/auth/me`, { headers }),
+        fetch(`${API_URL}/hostels`, { headers }),
+      ]);
+
+      const [meData, hostelsData] = await Promise.all([
+        jsonResponse(meResponse),
+        jsonResponse(hostelsResponse),
+      ]);
+
       if (!meResponse.ok) {
         throw new Error(
-          String((meData as Record<string, unknown>)?.message || "Unable to verify account."),
+          String(
+            (meData as Record<string, unknown>)?.message ||
+            "Unable to verify account.",
+          ),
         );
       }
 
@@ -105,25 +204,61 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       const user = (me.user || me) as User;
       const role = user?.role;
 
+      /*
+       * Validate roles
+       */
       if (expectedRole === "RENTER" && role !== "RENTER") {
         await signOut(auth);
+        await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => { });
         throw new Error(
           "This account is not registered as a renter. Please login using the Admin tab.",
         );
       }
-      if (expectedRole === "ADMIN" && role !== "ADMIN" && role !== "SUPER_ADMIN") {
+
+      if (
+        expectedRole === "ADMIN" &&
+        role !== "ADMIN" &&
+        role !== "SUPER_ADMIN"
+      ) {
         await signOut(auth);
+        await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => { });
         throw new Error(
           "This account does not have Admin access. Please login using the Renter (Google) tab.",
         );
       }
 
+      const hostelData = hostelsResponse.ok
+        ? listFrom<Hostel>(hostelsData, "hostels")
+        : [];
+
+      /*
+       * Save authenticated user and token immediately.
+       */
       setToken(idToken);
       setCurrentUser(user);
+      setError("");
 
-      const hostelData = await fetchHostels(idToken);
+      // Persist session to AsyncStorage immediately for instant resume on app reopen
+      const sessionToSave: CachedSession = {
+        token: idToken,
+        user,
+        role: role === "RENTER" ? "RENTER" : "ADMIN",
+        hostels: hostelData,
+        savedAt: Date.now(),
+      };
+      await AsyncStorage.setItem(
+        SESSION_CACHE_KEY,
+        JSON.stringify(sessionToSave),
+      ).catch(() => { });
+
+      /*
+       * Load hostels in application state
+       */
       cbs?.onHostelsLoaded(hostelData, idToken);
 
+      /*
+       * Renter flow
+       */
       if (role === "RENTER") {
         if (hostelData[0]?.id) {
           cbs?.onRenterDataNeeded(idToken, hostelData[0].id, user.id);
@@ -131,121 +266,445 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
         return;
       }
 
-      const dashResponse = await fetch(`${API_URL}/dashboard`, {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const dashData = await jsonResponse(dashResponse);
-      if (!dashResponse.ok) {
-        throw new Error(
-          String((dashData as Record<string, unknown>)?.message || "Unable to load dashboard."),
-        );
-      }
-      cbs?.onDashboardLoaded(dashboardFrom(dashData));
+      /*
+       * Admin flow: load initial dashboard non-blockingly
+       */
+      fetch(`${API_URL}/dashboard`, { headers })
+        .then(jsonResponse)
+        .then((dashData) => {
+          cbs?.onDashboardLoaded(dashboardFrom(dashData));
+        })
+        .catch(() => { });
     },
-    [callbacks, fetchHostels],
+    [callbacks],
   );
 
+  /*
+   * ============================================================
+   * INSTANT SESSION RESTORATION FROM ASYNC STORAGE
+   * ============================================================
+   * Runs immediately on app mount. Restores token, user, hostels,
+   * and renter document in ~5ms so the user NEVER sees the login
+   * screen when the app is closed and reopened.
+   */
+  useEffect(() => {
+    let isMounted = true;
+    warmupApi();
+
+    async function restoreCachedSession() {
+      try {
+        const raw = await AsyncStorage.getItem(SESSION_CACHE_KEY);
+        if (raw && isMounted) {
+          const cached: CachedSession = JSON.parse(raw);
+          if (cached?.token && cached?.user) {
+            setToken(cached.token);
+            setCurrentUser(cached.user);
+            setLoginRole(
+              cached.role ||
+              (cached.user.role === "RENTER" ? "RENTER" : "ADMIN"),
+            );
+            if (cached.renterDoc) {
+              setCurrentRenterDoc(cached.renterDoc);
+            }
+            if (cached.hostels && cached.hostels.length > 0) {
+              callbacks?.onHostelsLoaded(cached.hostels, cached.token);
+            }
+            // User is restored instantly!
+            setInitializing(false);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed reading cached auth session:", err);
+      }
+    }
+
+    void restoreCachedSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [callbacks]);
+
+  /*
+   * ============================================================
+   * FIREBASE AUTH STATE & TOKEN REFRESH LISTENER
+   * ============================================================
+   * Background verification & token synchronization.
+   * NEVER signs out on network errors or Render spin-up delays!
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    const unsubscribe = onIdTokenChanged(
+      auth,
+      async (firebaseUser) => {
+        if (!mounted) return;
+
+        // No Firebase user in native storage
+        if (!firebaseUser) {
+          // If we had no cached session either, finalize initialization
+          authInitialized.current = true;
+          const cached = await AsyncStorage.getItem(SESSION_CACHE_KEY).catch(
+            () => null,
+          );
+          if (!cached) {
+            setToken(null);
+            setCurrentUser(null);
+            setCurrentRenterDoc(null);
+          }
+          if (mounted) {
+            setInitializing(false);
+          }
+          return;
+        }
+
+        try {
+          // Fast local token retrieval
+          const idToken = await firebaseUser.getIdToken(false);
+          if (mounted) {
+            setToken(idToken);
+          }
+
+          // Background revalidation on first event or token change
+          if (!authInitialized.current) {
+            authInitialized.current = true;
+
+            try {
+              const meResponse = await fetch(`${API_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${idToken}` },
+              });
+
+              if (meResponse.ok) {
+                const meData = (await jsonResponse(meResponse)) as any;
+                const user = (meData.user || meData) as User;
+                if (user && mounted) {
+                  setCurrentUser(user);
+
+                  const hostelsRes = await fetch(`${API_URL}/hostels`, {
+                    headers: { Authorization: `Bearer ${idToken}` },
+                  });
+                  const hostelsData = await jsonResponse(hostelsRes);
+                  const hostels = hostelsRes.ok
+                    ? listFrom<Hostel>(hostelsData, "hostels")
+                    : [];
+
+                  if (hostels.length > 0) {
+                    callbacks?.onHostelsLoaded(hostels, idToken);
+                    if (user.role === "RENTER" && hostels[0]?.id) {
+                      callbacks?.onRenterDataNeeded(
+                        idToken,
+                        hostels[0].id,
+                        user.id,
+                      );
+                    }
+                  }
+
+                  // Update cached session
+                  const existingRaw = await AsyncStorage.getItem(
+                    SESSION_CACHE_KEY,
+                  ).catch(() => null);
+                  const existing = existingRaw
+                    ? JSON.parse(existingRaw)
+                    : {};
+                  await AsyncStorage.setItem(
+                    SESSION_CACHE_KEY,
+                    JSON.stringify({
+                      ...existing,
+                      token: idToken,
+                      user,
+                      role: user.role === "RENTER" ? "RENTER" : "ADMIN",
+                      hostels:
+                        hostels.length > 0 ? hostels : existing.hostels,
+                      savedAt: Date.now(),
+                    }),
+                  ).catch(() => { });
+                }
+              } else if (meResponse.status === 401) {
+                // Token may have expired or was revoked - try forcing a refresh once
+                const freshToken = await firebaseUser.getIdToken(true);
+                const retryRes = await fetch(`${API_URL}/auth/me`, {
+                  headers: { Authorization: `Bearer ${freshToken}` },
+                });
+                if (retryRes.ok) {
+                  if (mounted) setToken(freshToken);
+                } else if (retryRes.status === 401) {
+                  // Explicitly revoked
+                  await signOut(auth);
+                  await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(
+                    () => { },
+                  );
+                  if (mounted) {
+                    setToken(null);
+                    setCurrentUser(null);
+                    setCurrentRenterDoc(null);
+                  }
+                }
+              }
+            } catch (netErr) {
+              // Network error or cold backend: NEVER sign out!
+              // Keep user logged in with their cached session
+              console.warn(
+                "Background sync skipped due to network:",
+                netErr,
+              );
+            }
+          }
+        } catch (err) {
+          console.warn("Firebase token refresh error:", err);
+        } finally {
+          if (mounted) {
+            setInitializing(false);
+          }
+        }
+      },
+    );
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [callbacks]);
+
+  /*
+   * ============================================================
+   * GOOGLE LOGIN
+   * ============================================================
+   */
   const loginWithGoogle = useCallback(async () => {
     setLoading(true);
     setError("");
+
     try {
       if (Platform.OS === "web") {
         const provider = new GoogleAuthProvider();
-        const credential = await signInWithPopup(auth, provider);
-        const idToken = await credential.user.getIdToken();
-        await handleAuthenticatedUser(idToken, "RENTER");
+
+        const credential =
+          await signInWithPopup(auth, provider);
+
+        const idToken =
+          await credential.user.getIdToken();
+
+        await handleAuthenticatedUser(
+          idToken,
+          "RENTER",
+        );
+
         return;
       }
 
-      const authUrl = `https://staynexa-17a95.firebaseapp.com/__/auth/handler?apiKey=AIzaSyAZZlhQGPf0eXNlXYdn3cHFnMzKhF7oEqk&appName=%5BDEFAULT%5D&authType=signInWithPopup&providerId=google.com&scopes=profile%20email`;
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, "staynexa://");
+      const authUrl =
+        `https://staynexa-17a95.firebaseapp.com/__/auth/handler` +
+        `?apiKey=AIzaSyAZZlhQGPf0eXNlXYdn3cHFnMzKhF7oEqk` +
+        `&appName=%5BDEFAULT%5D` +
+        `&authType=signInWithPopup` +
+        `&providerId=google.com` +
+        `&scopes=profile%20email`;
 
-      if (result.type === "success" && auth.currentUser) {
-        const idToken = await auth.currentUser.getIdToken();
-        await handleAuthenticatedUser(idToken, "RENTER");
+      const result =
+        await WebBrowser.openAuthSessionAsync(
+          authUrl,
+          "staynexa://",
+        );
+
+      if (
+        result.type === "success" &&
+        auth.currentUser
+      ) {
+        const idToken =
+          await auth.currentUser.getIdToken();
+
+        await handleAuthenticatedUser(
+          idToken,
+          "RENTER",
+        );
+
         return;
       }
 
       setShowRenterEmailFallback(true);
     } catch (err) {
       setShowRenterEmailFallback(true);
-      setError(err instanceof Error ? err.message : "Google Sign-In failed.");
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Google Sign-In failed.",
+      );
     } finally {
       setLoading(false);
     }
   }, [handleAuthenticatedUser]);
 
+  /*
+   * ============================================================
+   * RENTER EMAIL LOGIN
+   * ============================================================
+   */
   const loginRenterWithEmail = useCallback(async () => {
-    if (!renterEmailInput.trim() || !renterPasswordInput) {
-      setError("Please enter your registered email and password.");
+    if (
+      !renterEmailInput.trim() ||
+      !renterPasswordInput
+    ) {
+      setError(
+        "Please enter your registered email and password.",
+      );
       return;
     }
+
     setLoading(true);
     setError("");
+
     try {
-      const credential = await signInWithEmailAndPassword(
-        auth,
-        renterEmailInput.trim(),
-        renterPasswordInput,
+      const credential =
+        await signInWithEmailAndPassword(
+          auth,
+          renterEmailInput.trim(),
+          renterPasswordInput,
+        );
+
+      const idToken =
+        await credential.user.getIdToken();
+
+      await handleAuthenticatedUser(
+        idToken,
+        "RENTER",
       );
-      const idToken = await credential.user.getIdToken();
-      await handleAuthenticatedUser(idToken, "RENTER");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Renter login failed.");
-    } finally {
-      setLoading(false);
-    }
-  }, [renterEmailInput, renterPasswordInput, handleAuthenticatedUser]);
-
-  const sendPasswordResetLink = useCallback(async (targetEmail?: string) => {
-    const toEmail = (targetEmail || renterEmailInput || email).trim();
-    if (!toEmail) {
-      setError("Please enter your registered email address first.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      await sendPasswordResetEmail(auth, toEmail);
-      Alert.alert(
-        "Password Setup Link Sent",
-        `We have sent a link to ${toEmail}. Open the email to create or reset your password, then return here to log in.`,
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Renter login failed.",
       );
-    } catch (err: any) {
-      setError(err?.message || "Failed to send password setup email.");
     } finally {
       setLoading(false);
     }
-  }, [renterEmailInput, email]);
+  }, [
+    renterEmailInput,
+    renterPasswordInput,
+    handleAuthenticatedUser,
+  ]);
 
+  /*
+   * ============================================================
+   * PASSWORD RESET
+   * ============================================================
+   */
+  const sendPasswordResetLink = useCallback(
+    async (targetEmail?: string) => {
+      const toEmail = (
+        targetEmail ||
+        renterEmailInput ||
+        email
+      ).trim();
+
+      if (!toEmail) {
+        setError(
+          "Please enter your registered email address first.",
+        );
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+
+      try {
+        await sendPasswordResetEmail(
+          auth,
+          toEmail,
+        );
+
+        Alert.alert(
+          "Password Setup Link Sent",
+          `We have sent a link to ${toEmail}. Open the email to create or reset your password, then return here to log in.`,
+        );
+      } catch (err: any) {
+        setError(
+          err?.message ||
+          "Failed to send password setup email.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [renterEmailInput, email],
+  );
+
+  /*
+   * ============================================================
+   * ADMIN LOGIN
+   * ============================================================
+   */
   const loginAdmin = useCallback(async () => {
     if (!email.trim() || !password) {
-      setError("Enter your admin email and password.");
+      setError(
+        "Enter your admin email and password.",
+      );
       return;
     }
+
     setLoading(true);
     setError("");
+
     try {
-      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const idToken = await credential.user.getIdToken();
-      await handleAuthenticatedUser(idToken, "ADMIN");
+      const credential =
+        await signInWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password,
+        );
+
+      const idToken =
+        await credential.user.getIdToken();
+
+      await handleAuthenticatedUser(
+        idToken,
+        "ADMIN",
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Admin login failed.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Admin login failed.",
+      );
     } finally {
       setLoading(false);
     }
-  }, [email, password, handleAuthenticatedUser]);
+  }, [
+    email,
+    password,
+    handleAuthenticatedUser,
+  ]);
 
+  /*
+   * ============================================================
+   * EXPLICIT LOGOUT
+   * ============================================================
+   * Only explicit logout clears the saved session.
+   * Closing the app never logs the user out.
+   */
   const logout = useCallback(async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.warn("SignOut error:", err);
+    }
+
+    await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(
+      () => { },
+    );
+
     setToken(null);
     setCurrentUser(null);
     setCurrentRenterDoc(null);
+
     setEmail("");
     setPassword("");
+
     setRenterEmailInput("");
     setRenterPasswordInput("");
+
     setError("");
+
     callbacks?.onLogout();
   }, [callbacks]);
 
@@ -253,29 +712,41 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
     token,
     currentUser,
     currentRenterDoc,
-    setCurrentRenterDoc,
+    setCurrentRenterDoc: updateCurrentRenterDoc,
+
     loading,
+    initializing,
+
     error,
     setError,
+
     loginRole,
     setLoginRole,
+
     email,
     setEmail,
+
     password,
     setPassword,
+
     showPassword,
     setShowPassword,
+
     showRenterEmailFallback,
     setShowRenterEmailFallback,
+
     renterEmailInput,
     setRenterEmailInput,
+
     renterPasswordInput,
     setRenterPasswordInput,
+
     loginWithGoogle,
     loginRenterWithEmail,
     sendPasswordResetLink,
     loginAdmin,
     logout,
+
     handleAuthenticatedUser,
   };
 }
