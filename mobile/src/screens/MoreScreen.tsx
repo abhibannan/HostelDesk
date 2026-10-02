@@ -139,16 +139,9 @@ export function MoreScreen({
       <Text style={[styles.sectionLabel, { color: colors.secondary }]}>MODULES</Text>
 
       <MoreRow
-        icon="receipt-outline"
-        title="Fees & Rent Reminders"
-        subtitle="Create fees, send rent reminders to unpaid residents"
-        onPress={onNavigateToFees}
-        colors={colors}
-      />
-      <MoreRow
-        icon="card-outline"
-        title="Payment Proofs"
-        subtitle="Review and approve renter payment receipts"
+        icon="wallet-outline"
+        title="Payments & Invoicing"
+        subtitle="Manage fees, verify payment receipts, and send reminders"
         onPress={onNavigateToPayments}
         colors={colors}
       />

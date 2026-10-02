@@ -258,19 +258,18 @@ export function LoginScreen({
             <>
               <Text style={styles.loginTitle}>Admin Login</Text>
               <Text style={styles.loginSubtitle}>
-                Manage your hostels from one place.
+                Hostel wardens, managers and maintenance technicians can sign in with their registered Email or Mobile number.
               </Text>
 
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Email or Mobile Number</Text>
               <View style={styles.inputWithIcon}>
-                <Ionicons name="mail-outline" size={20} color={COLORS.secondary} />
+                <Ionicons name="person-outline" size={20} color={COLORS.secondary} />
                 <TextInput
                   style={styles.inputWithIconText}
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="Enter your email"
+                  placeholder="Enter email or mobile number"
                   placeholderTextColor="#94A3B8"
-                  keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
@@ -310,11 +309,22 @@ export function LoginScreen({
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.primaryButtonText}>Login as Admin</Text>
+                    <Text style={styles.primaryButtonText}>Sign In</Text>
                     <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
                   </>
                 )}
               </TouchableOpacity>
+
+              {onSendPasswordResetLink ? (
+                <TouchableOpacity
+                  style={{ marginTop: 14, alignItems: "center" }}
+                  onPress={onSendPasswordResetLink}
+                >
+                  <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: "600" }}>
+                    Forgot password? Send Reset Email
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </>
           )}
 

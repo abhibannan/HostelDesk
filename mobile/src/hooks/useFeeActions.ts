@@ -133,6 +133,34 @@ export function useFeeActions(cb: FeeActionsCallbacks) {
     }
   }
 
+  async function deleteFee(feeId: string) {
+    Alert.alert(
+      "Delete Fee Record",
+      "Are you sure you want to permanently delete this fee record and its associated payments? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await cb.request(`/hostels/${cb.selectedHostelId}/fees/${feeId}`, {
+                method: "DELETE",
+              });
+              await cb.onRefresh();
+              Alert.alert("Fee Deleted", "The fee record was deleted successfully.");
+            } catch (err) {
+              Alert.alert(
+                "Unable to delete fee",
+                err instanceof Error ? err.message : "Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
+
   return {
     showFeeModal, setShowFeeModal,
     feeRenterId, setFeeRenterId,
@@ -144,6 +172,7 @@ export function useFeeActions(cb: FeeActionsCallbacks) {
     feeRenterPickerOpen, setFeeRenterPickerOpen,
     openFeeModal,
     addFee,
+    deleteFee,
     showGenerateModal, setShowGenerateModal,
     generateMonth, setGenerateMonth,
     generateDueDate, setGenerateDueDate,

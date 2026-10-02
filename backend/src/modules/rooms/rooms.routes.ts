@@ -11,6 +11,7 @@ const roomSchema = z.object({
   roomNumber: z.string().trim().min(1).max(50),
   floor: z.string().trim().max(50).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  maxOccupants: z.number().int().min(1).max(50).optional(),
 });
 
 const updateRoomSchema = roomSchema.partial();
@@ -78,6 +79,7 @@ router.post(
         roomNumber: parsed.data.roomNumber,
         floor: parsed.data.floor ?? null,
         status: parsed.data.status ?? "ACTIVE",
+        maxOccupants: parsed.data.maxOccupants ?? 2,
         createdAt: now,
         updatedAt: now,
       };
@@ -92,6 +94,7 @@ router.post(
         metadata: {
           hostelId,
           roomNumber: parsed.data.roomNumber,
+          maxOccupants: room.maxOccupants,
         },
       });
 
@@ -134,6 +137,7 @@ router.get(
       roomNumber: String(data.roomNumber ?? ""),
       floor: data.floor ?? null,
       status: data.status ?? "ACTIVE",
+      maxOccupants: typeof data.maxOccupants === "number" ? data.maxOccupants : 2,
       createdAt: data.createdAt ?? null,
       updatedAt: data.updatedAt ?? null,
     };
@@ -515,14 +519,15 @@ router.patch(
         .where("status", "==", "ACTIVE")
         .get();
       const sourceOccupied = sourceRemaining.docs.filter((d) => d.id !== renterId).length;
+      // Update rooms
       const sourceRef = db.collection("rooms").doc(sourceRoomId);
       await sourceRef.update({
-        status: sourceOccupied === 0 ? "ACTIVE" : "OCCUPIED",
+        status: "ACTIVE",
         updatedAt: now,
       });
 
       // Update target room status
-      await targetRoomRef.update({ status: "OCCUPIED", updatedAt: now });
+      await targetRoomRef.update({ status: "ACTIVE", updatedAt: now });
 
       await writeAuditLog({
         actorId: req.authUser.id,

@@ -133,10 +133,15 @@ export async function checkAndProcessRecurringFees(): Promise<{
         feeStatus = feeData.status || "PENDING";
         feeAmount = Number(feeData.amount || monthlyFee) - Number(feeData.paidAmount || 0);
 
+        const effectiveDueDateStr = feeData.dueDate || feeDueDate;
+        const dueDateObj = new Date(`${effectiveDueDateStr}T00:00:00`);
+        const todayObj = new Date(`${currentDateStr}T00:00:00`);
+        const diffDays = Math.round((dueDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
+
         // Check if fee is overdue
         if (
           (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID") &&
-          currentDateStr > (feeData.dueDate || feeDueDate)
+          diffDays < 0
         ) {
           if (feeStatus === "PENDING") {
             await feeDoc.ref.update({
@@ -161,7 +166,7 @@ export async function checkAndProcessRecurringFees(): Promise<{
                 userId,
                 type: "FEE_OVERDUE",
                 title: `Rent Payment Overdue: ₹${feeAmount}`,
-                message: `Your rent fee of ₹${feeAmount} for ${currentMonthStr} was due on ${feeData.dueDate || feeDueDate}. Please make payment immediately to avoid penalties.`,
+                message: `Your rent fee of ₹${feeAmount} for ${currentMonthStr} was due on ${effectiveDueDateStr}. Please make payment immediately to avoid penalties.`,
                 hostelId,
                 entityType: "FEE",
                 entityId: currentFeeId,
@@ -173,33 +178,102 @@ export async function checkAndProcessRecurringFees(): Promise<{
           }
         } else if (
           (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID") &&
-          // Within 3 days of due date
-          Math.abs(currentDay - safeDay) <= 3
+          // Start reminders automatically 5 days before the payment due date
+          diffDays >= 0 &&
+          diffDays <= 5
         ) {
-          // Check if a reminder was already sent
+          // Check if a reminder was sent in the last 20 hours
           const existingNotifSnapshot = await db
             .collection("notifications")
             .where("userId", "==", userId)
             .where("type", "==", "FEE_DUE")
             .where("entityId", "==", currentFeeId)
-            .limit(1)
+            .limit(10)
             .get();
 
-          if (existingNotifSnapshot.empty) {
+          const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+          const sentRecently = existingNotifSnapshot.docs.some((doc) => {
+            const data = doc.data();
+            return (data.createdAt || "") >= twentyHoursAgo;
+          });
+
+          if (!sentRecently) {
             try {
+              const dueNotice = diffDays === 0
+                ? "is due today!"
+                : diffDays === 1
+                ? `is due tomorrow (${effectiveDueDateStr})`
+                : `is due in ${diffDays} days (${effectiveDueDateStr})`;
+
               await createNotification({
                 userId,
                 type: "FEE_DUE",
                 title: `Rent Due Reminder: ₹${feeAmount}`,
-                message: `Reminder: Your monthly rent of ₹${feeAmount} is due on ${feeDueDate}.`,
+                message: `Reminder: Your monthly rent of ₹${feeAmount} ${dueNotice}. Please clear your payment before the due date.`,
                 hostelId,
                 entityType: "FEE",
                 entityId: currentFeeId,
               });
               notificationsSent++;
             } catch (notifErr) {
-              console.error(`Failed to send reminder notification to user ${userId}:`, notifErr);
+              console.error(`Failed to send 5-day reminder notification to user ${userId}:`, notifErr);
             }
+          }
+        }
+      }
+    }
+
+    // Also process any standalone / custom fees in 'fees' collection within the 5-day automated reminder window
+    const pendingFeesSnapshot = await db
+      .collection("fees")
+      .where("status", "in", ["PENDING", "PARTIALLY_PAID"])
+      .get();
+
+    for (const fDoc of pendingFeesSnapshot.docs) {
+      const fData = fDoc.data();
+      if (!fData.dueDate || !fData.renterId) continue;
+      const fDueObj = new Date(`${fData.dueDate}T00:00:00`);
+      const fTodayObj = new Date(`${currentDateStr}T00:00:00`);
+      const fDiff = Math.round((fDueObj.getTime() - fTodayObj.getTime()) / (1000 * 60 * 60 * 24));
+
+      // Automated 5 days before payment window
+      if (fDiff >= 0 && fDiff <= 5) {
+        const rSnap = await db.collection("renters").doc(fData.renterId).get();
+        if (!rSnap.exists) continue;
+        const rData = rSnap.data();
+        if (!rData?.userId) continue;
+
+        const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+        const existingSnap = await db
+          .collection("notifications")
+          .where("userId", "==", rData.userId)
+          .where("type", "==", "FEE_DUE")
+          .where("entityId", "==", fDoc.id)
+          .limit(10)
+          .get();
+
+        const alreadySent = existingSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
+        if (!alreadySent) {
+          const remAmount = Math.max(0, Number(fData.amount || 0) - Number(fData.paidAmount || 0));
+          const dueNotice = fDiff === 0
+            ? "is due today!"
+            : fDiff === 1
+            ? `is due tomorrow (${fData.dueDate})`
+            : `is due in ${fDiff} days (${fData.dueDate})`;
+
+          try {
+            await createNotification({
+              userId: rData.userId,
+              type: "FEE_DUE",
+              title: `Rent Due Reminder: ₹${remAmount}`,
+              message: `Reminder: Your monthly rent of ₹${remAmount} ${dueNotice}. Please clear your payment before the due date.`,
+              hostelId: fData.hostelId || rData.hostelId,
+              entityType: "FEE",
+              entityId: fDoc.id,
+            });
+            notificationsSent++;
+          } catch (e) {
+            console.error(`Failed to send 5-day automated fee reminder to ${rData.userId}:`, e);
           }
         }
       }

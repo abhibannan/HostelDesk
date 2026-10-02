@@ -218,12 +218,13 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       if (
         expectedRole === "ADMIN" &&
         role !== "ADMIN" &&
-        role !== "SUPER_ADMIN"
+        role !== "SUPER_ADMIN" &&
+        role !== "REPAIR_PERSON"
       ) {
         await signOut(auth);
         await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => { });
         throw new Error(
-          "This account does not have Admin access. Please login using the Renter (Google) tab.",
+          "This account does not have Admin or Staff access. Please login using the Renter (Google) tab.",
         );
       }
 
@@ -263,6 +264,13 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
         if (hostelData[0]?.id) {
           cbs?.onRenterDataNeeded(idToken, hostelData[0].id, user.id);
         }
+        return;
+      }
+
+      /*
+       * Repair person flow
+       */
+      if (role === "REPAIR_PERSON") {
         return;
       }
 
@@ -608,14 +616,25 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       setError("");
 
       try {
-        await sendPasswordResetEmail(
-          auth,
-          toEmail,
-        );
+        // 1. Call backend API to reset password and email new password to user
+        const res = await fetch(`${API_URL}/auth/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: toEmail }),
+        });
+        const resData = (await jsonResponse(res)) as { message?: string };
+
+        // 2. Also attempt Firebase client password reset email
+        try {
+          await sendPasswordResetEmail(auth, toEmail);
+        } catch {
+          // Firebase client fallback ignore
+        }
 
         Alert.alert(
-          "Password Setup Link Sent",
-          `We have sent a link to ${toEmail}. Open the email to create or reset your password, then return here to log in.`,
+          "Password Sent",
+          resData?.message ||
+            `A new password has been sent to ${toEmail}. Open the email to get your password, then return here to log in.`,
         );
       } catch (err: any) {
         setError(
@@ -631,13 +650,14 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
 
   /*
    * ============================================================
-   * ADMIN LOGIN
+   * ADMIN / STAFF LOGIN (Supports Email OR Mobile Number)
    * ============================================================
    */
   const loginAdmin = useCallback(async () => {
-    if (!email.trim() || !password) {
+    const rawIdentifier = email.trim();
+    if (!rawIdentifier || !password) {
       setError(
-        "Enter your admin email and password.",
+        "Enter your email/mobile number and password.",
       );
       return;
     }
@@ -646,10 +666,32 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
     setError("");
 
     try {
+      let resolvedEmail = rawIdentifier;
+      // If identifier has no @, resolve mobile number via backend
+      if (!rawIdentifier.includes("@")) {
+        const lookupRes = await fetch(`${API_URL}/auth/login-lookup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: rawIdentifier }),
+        });
+        const lookupData = (await jsonResponse(lookupRes)) as {
+          success?: boolean;
+          email?: string;
+          message?: string;
+        };
+        if (!lookupRes.ok || !lookupData.email) {
+          throw new Error(
+            lookupData.message ||
+              "No account found registered with this mobile number.",
+          );
+        }
+        resolvedEmail = lookupData.email;
+      }
+
       const credential =
         await signInWithEmailAndPassword(
           auth,
-          email.trim(),
+          resolvedEmail,
           password,
         );
 
@@ -664,7 +706,7 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       setError(
         err instanceof Error
           ? err.message
-          : "Admin login failed.",
+          : "Login failed. Please check your credentials.",
       );
     } finally {
       setLoading(false);

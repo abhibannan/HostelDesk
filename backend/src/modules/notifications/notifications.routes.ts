@@ -1,9 +1,39 @@
 import { Router } from "express";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { db } from "../../config/firebase.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
+import { isExpoPushToken, sendExpoPushNotifications } from "../../services/expo-push.service.js";
 
 const router = Router();
+
+const pushTokenSchema = z.object({
+  token: z.string().min(1),
+  platform: z.enum(["ios", "android"]).optional(),
+});
+
+router.post("/push-token", requireAuth, async (req, res, next) => {
+  try {
+    const parsed = pushTokenSchema.safeParse(req.body);
+    if (!parsed.success || !isExpoPushToken(parsed.data.token)) {
+      res.status(400).json({ message: "Invalid Expo push token" });
+      return;
+    }
+
+    const tokenId = createHash("sha256").update(parsed.data.token).digest("hex");
+    await db.collection("pushTokens").doc(tokenId).set({
+      id: tokenId,
+      userId: req.authUser!.id,
+      token: parsed.data.token,
+      platform: parsed.data.platform ?? null,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
 
 const createNotificationSchema = z.object({
   userId: z.string().min(1),
@@ -62,6 +92,32 @@ router.post(
         return;
       }
 
+      // Enforce hostel assignment for non-super admins
+      if (req.authUser.role === "ADMIN") {
+        const adminHostelsSnap = await db
+          .collection("hostelAdmins")
+          .where("adminId", "==", req.authUser.id)
+          .get();
+        const managedHostelIds = adminHostelsSnap.docs.map((d) => d.id);
+
+        const targetRenterSnap = await db
+          .collection("renters")
+          .where("userId", "==", parsed.data.userId)
+          .get();
+        const targetHostelIds = targetRenterSnap.docs.map((d) => d.data().hostelId);
+
+        const hasAccess =
+          (parsed.data.hostelId && managedHostelIds.includes(parsed.data.hostelId)) ||
+          targetHostelIds.some((hId) => managedHostelIds.includes(hId));
+
+        if (!hasAccess && managedHostelIds.length > 0) {
+          res.status(403).json({
+            message: "You can only send notifications to tenants of hostels you manage",
+          });
+          return;
+        }
+      }
+
       const notificationRef = db
         .collection("notifications")
         .doc();
@@ -84,6 +140,15 @@ router.post(
       };
 
       await notificationRef.set(notification);
+
+      await sendExpoPushNotifications([
+        {
+          userId: parsed.data.userId,
+          title: parsed.data.title,
+          body: parsed.data.message,
+          data: { notificationId: notificationRef.id, type: parsed.data.type },
+        },
+      ]);
 
       res.status(201).json({
         message: "Notification created successfully",
@@ -377,6 +442,11 @@ router.delete(
       const isAdmin = req.authUser?.role === "ADMIN" || req.authUser?.role === "SUPER_ADMIN";
 
       if (notifData?.userId === "ALL") {
+        if (isAdmin) {
+          await notifRef.delete();
+          res.json({ message: "Announcement deleted successfully", notificationId });
+          return;
+        }
         // Dismiss broadcast notification for this renter
         const dismissedBy = Array.isArray(notifData.dismissedBy) ? [...notifData.dismissedBy] : [];
         if (!dismissedBy.includes(req.authUser!.id)) {
@@ -481,6 +551,15 @@ router.post(
 
       await batch.commit();
 
+      await sendExpoPushNotifications(
+        [...seenUserIds].map((userId) => ({
+          userId,
+          title: String(title).trim(),
+          body: String(message).trim(),
+          data: { type: String(type || "ANNOUNCEMENT"), entityType: "BROADCAST" },
+        })),
+      );
+
       res.status(201).json({
         message:
           sentCount > 0
@@ -548,6 +627,15 @@ router.post(
         readAt: null,
         createdAt: now,
       });
+
+      await sendExpoPushNotifications([
+        {
+          userId: String(renter.userId),
+          title: isOverdue ? `Overdue Fee Reminder: ₹${remainingAmount}` : `Rent Fee Reminder: ₹${remainingAmount}`,
+          body: customMessage || `Notice from Hostel Admin: Your fee of ₹${remainingAmount} for ${fee.month} is ${isOverdue ? "overdue" : "pending"}. Due date: ${fee.dueDate}. Please clear your payment promptly.`,
+          data: { type: isOverdue ? "FEE_OVERDUE" : "FEE_DUE", entityType: "FEE", entityId: String(feeId) },
+        },
+      ]);
 
       res.status(201).json({
         message: "Fee reminder sent successfully to the renter",

@@ -20,8 +20,25 @@ export async function requireHostelAccess(
     }
 
     // SUPER ADMIN
-    // Can access only hostels they own.
+    // Full platform access to all hostels
     if (req.authUser.role === "SUPER_ADMIN") {
+      const hostelSnapshot = await db
+        .collection("hostels")
+        .doc(hostelId)
+        .get();
+
+      if (!hostelSnapshot.exists) {
+        res.status(404).json({ message: "Hostel not found" });
+        return;
+      }
+
+      next();
+      return;
+    }
+
+    // ADMIN
+    // Can access hostels they own or are assigned to
+    if (req.authUser.role === "ADMIN") {
       const hostelSnapshot = await db
         .collection("hostels")
         .doc(hostelId)
@@ -34,42 +51,39 @@ export async function requireHostelAccess(
 
       const hostelData = hostelSnapshot.data();
 
-      if (hostelData?.ownerId !== req.authUser.id) {
-        res.status(403).json({
-          message: "You do not have access to this hostel",
-        });
+      // Check if admin is the owner
+      if (hostelData?.ownerId === req.authUser.id) {
+        next();
         return;
       }
 
-      next();
-      return;
-    }
-
-    // ADMIN
-    // Can access only hostels currently assigned to them.
-    if (req.authUser.role === "ADMIN") {
+      // Check hostelAdmins doc where doc ID is hostelId
       const assignmentSnapshot = await db
         .collection("hostelAdmins")
         .doc(hostelId)
         .get();
 
-      if (!assignmentSnapshot.exists) {
-        res.status(403).json({
-          message: "You do not have access to this hostel",
-        });
+      if (assignmentSnapshot.exists && assignmentSnapshot.data()?.adminId === req.authUser.id) {
+        next();
         return;
       }
 
-      const assignmentData = assignmentSnapshot.data();
+      // Check hostelAdmins collection query
+      const assignmentQuery = await db
+        .collection("hostelAdmins")
+        .where("hostelId", "==", hostelId)
+        .where("adminId", "==", req.authUser.id)
+        .limit(1)
+        .get();
 
-      if (assignmentData?.adminId !== req.authUser.id) {
-        res.status(403).json({
-          message: "You do not have access to this hostel",
-        });
+      if (!assignmentQuery.empty) {
+        next();
         return;
       }
 
-      next();
+      res.status(403).json({
+        message: "You do not have access to this hostel",
+      });
       return;
     }
 
@@ -92,6 +106,36 @@ export async function requireHostelAccess(
       }
 
       next();
+      return;
+    }
+
+    // REPAIR_PERSON
+    // Can access hostels they are assigned to
+    if (req.authUser.role === "REPAIR_PERSON") {
+      const userHostelIds = Array.isArray(req.authUser.hostelIds)
+        ? req.authUser.hostelIds
+        : [];
+
+      if (userHostelIds.includes(hostelId)) {
+        next();
+        return;
+      }
+
+      const repairPersonSnapshot = await db
+        .collection("repairPersons")
+        .where("hostelId", "==", hostelId)
+        .where("userId", "==", req.authUser.id)
+        .limit(1)
+        .get();
+
+      if (!repairPersonSnapshot.empty) {
+        next();
+        return;
+      }
+
+      res.status(403).json({
+        message: "You do not have access to this hostel",
+      });
       return;
     }
 

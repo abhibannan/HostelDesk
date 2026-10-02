@@ -4,6 +4,7 @@ export const LIGHT_COLORS = {
   primaryLight: "#EFF6FF",
   background: "#F8FAFC",
   card: "#FFFFFF",
+  surfaceSecondary: "#F1F5F9",
   text: "#0F172A",
   secondary: "#64748B",
   border: "#E2E8F0",
@@ -23,29 +24,35 @@ export const LIGHT_COLORS = {
 
 export const DARK_COLORS = {
   primary: "#3B82F6",
-  primaryDark: "#2563EB",
-  primaryLight: "#1E293B",
-  background: "#0F172A",
-  card: "#1E293B",
-  text: "#F8FAFC",
-  secondary: "#94A3B8",
-  border: "#334155",
+  primaryDark: "#60A5FA",
+  primaryLight: "#1E2B44",
+  background: "#080B11",        // True pitch dark base background
+  card: "#121826",              // Elevated card surface with distinct contrast
+  surfaceSecondary: "#182236",  // Sub-section container (clearly distinguishable from card)
+  text: "#F1F5F9",              // Bright, high-contrast headings & primary text
+  secondary: "#94A3B8",          // Readable silver-gray for subtitles and metadata
+  border: "#253450",            // Crisp, defined border separating cards and sections
   success: "#22C55E",
-  successLight: "#064E3B",
+  successLight: "#052E16",
   danger: "#EF4444",
   dangerLight: "#450A0A",
   warning: "#F59E0B",
   warningLight: "#451A03",
   purple: "#A855F7",
-  purpleLight: "#3B0764",
+  purpleLight: "#2E1065",
   orange: "#F97316",
   orangeLight: "#431407",
-  grayFill: "#334155",
-  muted: "#1E293B",
+  grayFill: "#1D283E",          // Inputs, search bars, pill controls
+  muted: "#121826",
 };
 
 export type ThemeColors = typeof LIGHT_COLORS;
 export type ThemeMode = "light" | "dark";
 
-export const COLORS = LIGHT_COLORS;
+export const COLORS: ThemeColors = { ...LIGHT_COLORS };
+
+export function applyTheme(mode: ThemeMode) {
+  Object.assign(COLORS, mode === "dark" ? DARK_COLORS : LIGHT_COLORS);
+}
+
 

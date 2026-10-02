@@ -179,6 +179,42 @@ router.get(
         return;
       }
 
+      if (req.authUser.role === "REPAIR_PERSON") {
+        const repairPersonSnap = await db
+          .collection("repairPersons")
+          .where("userId", "==", req.authUser.id)
+          .get();
+
+        const hostelIdsFromRepairPersons = repairPersonSnap.docs
+          .map((doc) => String(doc.data().hostelId))
+          .filter(Boolean);
+
+        const userHostelIds = Array.isArray(req.authUser.hostelIds)
+          ? req.authUser.hostelIds
+          : [];
+
+        const allHostelIds = Array.from(new Set([...hostelIdsFromRepairPersons, ...userHostelIds]));
+
+        if (allHostelIds.length === 0) {
+          res.json({ hostels: [] });
+          return;
+        }
+
+        const hostelSnapshots = await Promise.all(
+          allHostelIds.map((hId) => db.collection("hostels").doc(hId).get()),
+        );
+
+        const hostels = hostelSnapshots
+          .filter((doc) => doc.exists)
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+        res.json({ hostels });
+        return;
+      }
+
       res.status(403).json({
         message: "Invalid user role",
       });

@@ -16,12 +16,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
 import { Hostel, Notification } from "../types";
 import { Header, EmptyState } from "../components/common";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface NotificationsScreenProps {
   notifications: Notification[];
   selectedHostel?: Hostel;
   hostels: Hostel[];
   onSendBroadcast: (title: string, message: string, type: string) => Promise<void>;
+  onDeleteNotification?: (id: string) => Promise<void> | void;
+  onClearAll?: () => Promise<void> | void;
   onRefresh: () => void;
   onBack?: () => void;
 }
@@ -31,9 +34,12 @@ export function NotificationsScreen({
   selectedHostel,
   hostels,
   onSendBroadcast,
+  onDeleteNotification,
+  onClearAll,
   onRefresh,
   onBack,
 }: NotificationsScreenProps) {
+  const { colors, isDark } = useTheme();
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
@@ -65,24 +71,44 @@ export function NotificationsScreen({
     switch (type) {
       case "URGENT":
       case "ALERT":
-        return { icon: "alert-circle-outline", color: COLORS.danger, bg: COLORS.dangerLight, label: "Urgent Alert" };
+        return {
+          icon: "alert-circle-outline",
+          color: COLORS.danger,
+          bg: isDark ? "rgba(239,68,68,0.2)" : COLORS.dangerLight,
+          label: "Urgent Alert",
+        };
       case "MAINTENANCE":
-        return { icon: "construct-outline", color: COLORS.orange, bg: COLORS.orangeLight, label: "Maintenance" };
+        return {
+          icon: "construct-outline",
+          color: COLORS.orange,
+          bg: isDark ? "rgba(249,115,22,0.2)" : COLORS.orangeLight,
+          label: "Maintenance",
+        };
       case "SYSTEM":
-        return { icon: "information-circle-outline", color: COLORS.purple, bg: COLORS.purpleLight, label: "Notice" };
+        return {
+          icon: "information-circle-outline",
+          color: COLORS.purple,
+          bg: isDark ? "rgba(139,92,246,0.2)" : COLORS.purpleLight,
+          label: "Notice",
+        };
       default:
-        return { icon: "megaphone-outline", color: COLORS.primary, bg: COLORS.primaryLight, label: "Announcement" };
+        return {
+          icon: "megaphone-outline",
+          color: COLORS.primary,
+          bg: isDark ? "rgba(59,130,246,0.2)" : COLORS.primaryLight,
+          label: "Announcement",
+        };
     }
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
         {/* Header navigation */}
         <View style={styles.topNavRow}>
           {onBack && (
-            <TouchableOpacity style={styles.backButton} onPress={onBack}>
-              <Ionicons name="arrow-back" size={20} color={COLORS.text} />
+            <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={onBack}>
+              <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
           )}
           <View style={{ flex: 1 }}>
@@ -95,29 +121,39 @@ export function NotificationsScreen({
         </View>
 
         {/* Notice Info Box */}
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle" size={18} color={COLORS.primary} />
-          <Text style={styles.infoBoxText}>
-            Use this section to publish hostel broadcasts, announcements, and maintenance alerts to residents.
-            Fee-specific rent reminders are managed in the <Text style={{ fontWeight: "700" }}>Fees</Text> section.
+        <View style={[styles.infoBar, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.primaryLight, borderColor: isDark ? colors.border : "#BFDBFE" }]}>
+          <Ionicons name="information-circle" size={16} color={COLORS.primary} />
+          <Text style={[styles.infoBarText, { color: isDark ? colors.text : COLORS.primaryDark }]}>
+            Broadcast announcements and alerts directly to resident notification trays.
           </Text>
         </View>
 
         {/* Action Row */}
         <View style={styles.actionRow}>
-          <View>
-            <Text style={styles.sectionTitle}>Broadcast History</Text>
-            <Text style={styles.sectionSubtitle}>
-              Announcements dispatched to resident portals
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Broadcast History</Text>
+            <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
+              {notifications.length} announcement{notifications.length === 1 ? "" : "s"} sent
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.smallPrimaryButton}
-            onPress={() => setShowBroadcastModal(true)}
-          >
-            <Ionicons name="megaphone" size={16} color="#FFFFFF" />
-            <Text style={styles.smallPrimaryText}>New Broadcast</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {notifications.length > 0 && onClearAll ? (
+              <TouchableOpacity
+                style={styles.clearAllBtn}
+                onPress={onClearAll}
+              >
+                <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
+                <Text style={styles.clearAllText}>Clear All</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={styles.smallPrimaryButton}
+              onPress={() => setShowBroadcastModal(true)}
+            >
+              <Ionicons name="megaphone" size={15} color="#FFFFFF" />
+              <Text style={styles.smallPrimaryText}>New Broadcast</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Notification Cards */}
@@ -132,7 +168,7 @@ export function NotificationsScreen({
             const typeInfo = getTypeIconAndColor(notif.type);
 
             return (
-              <View key={notif.id} style={styles.notifCard}>
+              <View key={notif.id} style={[styles.notifCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.notifCardTop}>
                   <View style={[styles.typeBadge, { backgroundColor: typeInfo.bg }]}>
                     <Ionicons name={typeInfo.icon as any} size={13} color={typeInfo.color} />
@@ -140,19 +176,40 @@ export function NotificationsScreen({
                       {typeInfo.label}
                     </Text>
                   </View>
-                  <Text style={styles.notifDate}>
+                  <Text style={[styles.notifDate, { color: colors.secondary }]}>
                     {notif.createdAt ? new Date(notif.createdAt).toLocaleDateString() : ""}
                   </Text>
                 </View>
 
-                <Text style={styles.notifTitle}>{notif.title}</Text>
-                <Text style={styles.notifMessage}>{notif.message}</Text>
+                <Text style={[styles.notifTitle, { color: colors.text }]}>{notif.title}</Text>
+                <Text style={[styles.notifMessage, { color: colors.secondary }]}>{notif.message}</Text>
 
-                <View style={styles.notifFooter}>
+                <View style={[styles.notifFooter, { borderTopColor: colors.border }]}>
                   <View style={styles.notifFooterItem}>
                     <Ionicons name="checkmark-circle-outline" size={13} color={COLORS.success} />
-                    <Text style={styles.notifFooterText}>Delivered to resident portal</Text>
+                    <Text style={[styles.notifFooterText, { color: colors.secondary }]}>Delivered to resident portal</Text>
                   </View>
+                  {onDeleteNotification ? (
+                    <TouchableOpacity
+                      style={[styles.cardDeleteBtn, isDark && { backgroundColor: "rgba(239,68,68,0.18)" }]}
+                      onPress={() => {
+                        Alert.alert(
+                          "Delete Notification",
+                          "Are you sure you want to delete this notification record?",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Delete",
+                              style: "destructive",
+                              onPress: () => onDeleteNotification(notif.id),
+                            },
+                          ],
+                        );
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
             );
@@ -166,49 +223,57 @@ export function NotificationsScreen({
           style={styles.modalBackdrop}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Broadcast to Residents</Text>
-                <Text style={styles.modalSubtitle}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Broadcast to Residents</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>
                   Dispatches an instant notification to all active residents.
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setShowBroadcastModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.text} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             {/* Scope */}
-            <Text style={styles.inputLabel}>Audience</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Audience</Text>
             <View style={styles.scopeRow}>
               <TouchableOpacity
-                style={[styles.scopeBtn, targetScope === "CURRENT" && styles.scopeBtnActive]}
+                style={[
+                  styles.scopeBtn,
+                  { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                  targetScope === "CURRENT" && styles.scopeBtnActive,
+                ]}
                 onPress={() => setTargetScope("CURRENT")}
               >
                 <Ionicons
                   name="business-outline"
                   size={14}
-                  color={targetScope === "CURRENT" ? COLORS.primary : COLORS.secondary}
+                  color={targetScope === "CURRENT" ? COLORS.primary : colors.secondary}
                 />
                 <Text
-                  style={[styles.scopeBtnText, targetScope === "CURRENT" && styles.scopeBtnTextActive]}
+                  style={[styles.scopeBtnText, { color: colors.secondary }, targetScope === "CURRENT" && styles.scopeBtnTextActive]}
                 >
                   {selectedHostel?.name || "This Hostel"}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.scopeBtn, targetScope === "ALL" && styles.scopeBtnActive]}
+                style={[
+                  styles.scopeBtn,
+                  { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                  targetScope === "ALL" && styles.scopeBtnActive,
+                ]}
                 onPress={() => setTargetScope("ALL")}
               >
                 <Ionicons
                   name="globe-outline"
                   size={14}
-                  color={targetScope === "ALL" ? COLORS.primary : COLORS.secondary}
+                  color={targetScope === "ALL" ? COLORS.primary : colors.secondary}
                 />
                 <Text
-                  style={[styles.scopeBtnText, targetScope === "ALL" && styles.scopeBtnTextActive]}
+                  style={[styles.scopeBtnText, { color: colors.secondary }, targetScope === "ALL" && styles.scopeBtnTextActive]}
                 >
                   All Hostels
                 </Text>
@@ -216,7 +281,7 @@ export function NotificationsScreen({
             </View>
 
             {/* Category */}
-            <Text style={styles.inputLabel}>Announcement Category</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Announcement Category</Text>
             <View style={styles.scopeRow}>
               {[
                 { key: "ANNOUNCEMENT", label: "Announcement", icon: "megaphone-outline" },
@@ -225,16 +290,20 @@ export function NotificationsScreen({
               ].map((cat) => (
                 <TouchableOpacity
                   key={cat.key}
-                  style={[styles.scopeBtn, broadcastType === cat.key && styles.scopeBtnActive]}
+                  style={[
+                    styles.scopeBtn,
+                    { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                    broadcastType === cat.key && styles.scopeBtnActive,
+                  ]}
                   onPress={() => setBroadcastType(cat.key)}
                 >
                   <Ionicons
                     name={cat.icon as any}
                     size={14}
-                    color={broadcastType === cat.key ? COLORS.primary : COLORS.secondary}
+                    color={broadcastType === cat.key ? COLORS.primary : colors.secondary}
                   />
                   <Text
-                    style={[styles.scopeBtnText, broadcastType === cat.key && styles.scopeBtnTextActive]}
+                    style={[styles.scopeBtnText, { color: colors.secondary }, broadcastType === cat.key && styles.scopeBtnTextActive]}
                   >
                     {cat.label}
                   </Text>
@@ -243,33 +312,33 @@ export function NotificationsScreen({
             </View>
 
             {/* Title */}
-            <Text style={styles.inputLabel}>Title *</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Title *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
               value={broadcastTitle}
               onChangeText={setBroadcastTitle}
               placeholder="e.g. Water Tank Cleaning / Gate Curfew Timing"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.secondary}
             />
 
             {/* Message */}
-            <Text style={styles.inputLabel}>Message Details *</Text>
+            <Text style={[styles.inputLabel, { color: colors.text }]}>Message Details *</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
               value={broadcastMessage}
               onChangeText={setBroadcastMessage}
               placeholder="Write the complete announcement notice..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.secondary}
               multiline
               numberOfLines={4}
             />
 
             <View style={styles.modalActions}>
               <TouchableOpacity
-                style={styles.cancelBtn}
+                style={[styles.cancelBtn, { borderColor: colors.border }]}
                 onPress={() => setShowBroadcastModal(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={[styles.cancelBtnText, { color: colors.secondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.saveBtn, sending && styles.btnDisabled]}
@@ -308,24 +377,37 @@ const styles = StyleSheet.create({
     marginRight: 10,
     backgroundColor: COLORS.card,
   },
-  infoBox: {
+  infoBar: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 8,
     backgroundColor: COLORS.primaryLight,
     borderRadius: 12,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "#BFDBFE",
   },
-  infoBoxText: { flex: 1, fontSize: 12, color: COLORS.primaryDark, lineHeight: 18 },
+  infoBarText: { flex: 1, fontSize: 12, color: COLORS.primaryDark || "#1E40AF", lineHeight: 18, fontWeight: "500" },
   actionRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
+  clearAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: COLORS.dangerLight,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  clearAllText: { fontSize: 12, color: COLORS.danger, fontWeight: "700" },
   sectionTitle: { fontSize: 18, fontWeight: "800", color: COLORS.text },
   sectionSubtitle: { fontSize: 12, color: COLORS.secondary, marginTop: 2 },
   smallPrimaryButton: {
@@ -371,13 +453,21 @@ const styles = StyleSheet.create({
   notifFooter: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
-  notifFooterItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  notifFooterItem: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1 },
   notifFooterText: { fontSize: 11, color: COLORS.success, fontWeight: "600" },
+  cardDeleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: COLORS.dangerLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

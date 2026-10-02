@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { firebaseAuth, db } from "../../config/firebase.js";
+import { db } from "../../config/firebase.js";
+import { sendExpoPushNotifications } from "../../services/expo-push.service.js";
 
 export type NotificationType =
   | "FEE_DUE"
@@ -51,6 +52,20 @@ export async function createNotification(
   };
 
   await notificationRef.set(notification);
+
+  await sendExpoPushNotifications([
+    {
+      userId: input.userId,
+      title: input.title,
+      body: input.message,
+      data: {
+        notificationId: notificationRef.id,
+        type: input.type,
+        entityType: input.entityType ?? "",
+        entityId: input.entityId ?? "",
+      },
+    },
+  ]);
 
  return {
   ...notification,

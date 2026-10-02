@@ -9,6 +9,8 @@ export interface RoomActionsState {
   setRoomNumber: (v: string) => void;
   roomFloor: string;
   setRoomFloor: (v: string) => void;
+  roomCapacity: string;
+  setRoomCapacity: (v: string) => void;
   roomSaving: boolean;
 }
 
@@ -23,6 +25,7 @@ export function useRoomActions(cb: RoomActionsCallbacks) {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [roomNumber, setRoomNumber] = useState("");
   const [roomFloor, setRoomFloor] = useState("");
+  const [roomCapacity, setRoomCapacity] = useState("2");
   const [roomSaving, setRoomSaving] = useState(false);
 
   async function addRoom() {
@@ -32,19 +35,22 @@ export function useRoomActions(cb: RoomActionsCallbacks) {
     }
     setRoomSaving(true);
     try {
+      const parsedCapacity = Math.max(1, parseInt(roomCapacity, 10) || 2);
       await cb.request(`/hostels/${cb.selectedHostelId}/rooms`, {
         method: "POST",
         body: JSON.stringify({
           roomNumber: roomNumber.trim(),
           floor: roomFloor.trim() || undefined,
+          maxOccupants: parsedCapacity,
           status: "ACTIVE",
         }),
       });
       setRoomNumber("");
       setRoomFloor("");
+      setRoomCapacity("2");
       setShowRoomModal(false);
       await cb.onRefresh();
-      Alert.alert("Room added", "The room was added successfully.");
+      Alert.alert("Room added", `Room was added successfully with ${parsedCapacity} bed capacity.`);
     } catch (err) {
       Alert.alert(
         "Unable to add room",
@@ -56,16 +62,16 @@ export function useRoomActions(cb: RoomActionsCallbacks) {
   }
 
   function deleteRoom(room: Room) {
-    const hasActiveRenter = cb.renters.some(
+    const activeRentersInRoom = cb.renters.filter(
       (renter) =>
         String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE" &&
         renter.roomId === room.id,
     );
 
-    if (hasActiveRenter) {
+    if (activeRentersInRoom.length > 0) {
       Alert.alert(
         "Room cannot be deleted",
-        `Room ${room.roomNumber} has an active renter. Mark the renter as left or move them first.`,
+        `Room ${room.roomNumber} has ${activeRentersInRoom.length} active occupant${activeRentersInRoom.length > 1 ? "s" : ""}. Please move or check out all occupants before deleting this room.`,
       );
       return;
     }
@@ -100,6 +106,8 @@ export function useRoomActions(cb: RoomActionsCallbacks) {
     setRoomNumber,
     roomFloor,
     setRoomFloor,
+    roomCapacity,
+    setRoomCapacity,
     roomSaving,
     addRoom,
     deleteRoom,

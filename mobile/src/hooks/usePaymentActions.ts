@@ -49,5 +49,39 @@ export function usePaymentActions(cb: PaymentActionsCallbacks) {
     );
   }
 
-  return { paymentActionId, reviewPayment };
+  function deletePayment(paymentId: string) {
+    if (!cb.selectedHostelId) return;
+
+    Alert.alert(
+      "Delete Payment Proof",
+      "Are you sure you want to permanently delete this payment proof record? If approved, fee balances will adjust automatically.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setPaymentActionId(paymentId);
+            try {
+              await cb.request(
+                `/hostels/${cb.selectedHostelId}/payments/${paymentId}`,
+                { method: "DELETE" },
+              );
+              await cb.onRefresh();
+              Alert.alert("Deleted", "Payment record deleted successfully.");
+            } catch (err) {
+              Alert.alert(
+                "Unable to delete payment",
+                err instanceof Error ? err.message : "Please try again.",
+              );
+            } finally {
+              setPaymentActionId("");
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  return { paymentActionId, reviewPayment, deletePayment };
 }

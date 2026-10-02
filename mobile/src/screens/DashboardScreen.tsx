@@ -1,11 +1,12 @@
 import React from "react";
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "../constants/theme";
 import { Dashboard, Hostel, Payment } from "../types";
 import { money, statusLabel } from "../utils/formatters";
 import { Header, StatCard, SectionTitle, EmptyState } from "../components/common";
 import { DonutChart, BarChart } from "../components/charts";
+import { COLORS } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface DashboardScreenProps {
   dashboard: Dashboard;
@@ -26,33 +27,35 @@ export function DashboardScreen({
   monthlyPaymentBars,
   onRefresh,
 }: DashboardScreenProps) {
+  const { colors, isDark } = useTheme();
+
   const occupancyRate =
     dashboard.totalRooms > 0
       ? Math.round((dashboard.occupiedRooms / dashboard.totalRooms) * 100)
       : 0;
 
   const roomChart = [
-    { label: "Occupied", value: dashboard.occupiedRooms, color: COLORS.primary },
-    { label: "Available", value: dashboard.availableRooms, color: COLORS.success },
+    { label: "Occupied", value: dashboard.occupiedRooms, color: colors.primary },
+    { label: "Available", value: dashboard.availableRooms, color: colors.success },
   ];
 
   const feeChart = [
-    { label: "Paid", value: dashboard.paidFees, color: COLORS.success },
-    { label: "Pending", value: dashboard.pendingFees, color: COLORS.primary },
-    { label: "Partial", value: dashboard.partiallyPaidFees, color: COLORS.warning },
-    { label: "Overdue", value: dashboard.overdueFees, color: COLORS.danger },
+    { label: "Paid", value: dashboard.paidFees, color: colors.success },
+    { label: "Pending", value: dashboard.pendingFees, color: colors.primary },
+    { label: "Partial", value: dashboard.partiallyPaidFees, color: colors.warning },
+    { label: "Overdue", value: dashboard.overdueFees, color: colors.danger },
   ];
 
   const repairChart = [
-    { label: "Submitted", value: dashboard.submittedRepairs, color: COLORS.primary },
-    { label: "Progress", value: dashboard.inProgressRepairs, color: COLORS.warning },
-    { label: "Resolved", value: dashboard.resolvedRepairs, color: COLORS.success },
-    { label: "Cancelled", value: dashboard.cancelledRepairs, color: COLORS.secondary },
+    { label: "Submitted", value: dashboard.submittedRepairs, color: colors.primary },
+    { label: "Progress", value: dashboard.inProgressRepairs, color: colors.warning },
+    { label: "Resolved", value: dashboard.resolvedRepairs, color: colors.success },
+    { label: "Cancelled", value: dashboard.cancelledRepairs, color: colors.secondary },
   ];
 
   return (
     <ScrollView
-      style={styles.screen}
+      style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
     >
@@ -63,14 +66,14 @@ export function DashboardScreen({
       />
 
       {selectedHostel ? (
-        <View style={styles.propertyCard}>
-          <View style={styles.propertyIcon}>
-            <Ionicons name="business-outline" size={22} color={COLORS.primary} />
+        <View style={[styles.propertyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.propertyIcon, { backgroundColor: colors.primaryLight }]}>
+            <Ionicons name="business-outline" size={22} color={colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.propertyLabel}>MANAGING HOSTEL</Text>
-            <Text style={styles.propertyName}>{selectedHostel.name}</Text>
-            <Text style={styles.propertyLocation}>
+            <Text style={[styles.propertyLabel, { color: colors.secondary }]}>MANAGING HOSTEL</Text>
+            <Text style={[styles.propertyName, { color: colors.text }]}>{selectedHostel.name}</Text>
+            <Text style={[styles.propertyLocation, { color: colors.secondary }]}>
               {selectedHostel.city || ""}
               {selectedHostel.city && selectedHostel.state ? ", " : ""}
               {selectedHostel.state || ""}
@@ -89,49 +92,49 @@ export function DashboardScreen({
       </View>
 
       <SectionTitle title="Room occupancy" />
-      <View style={styles.chartCard}>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.chartCardHeader}>
           <View>
-            <Text style={styles.chartTitle}>Occupancy distribution</Text>
-            <Text style={styles.chartSubtitle}>Occupied rooms versus available rooms</Text>
+            <Text style={[styles.chartTitle, { color: colors.text }]}>Occupancy distribution</Text>
+            <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Occupied rooms versus available rooms</Text>
           </View>
-          <View style={styles.rateBadge}>
-            <Text style={styles.rateValue}>{occupancyRate}%</Text>
-            <Text style={styles.rateLabel}>occupied</Text>
+          <View style={[styles.rateBadge, { backgroundColor: colors.primaryLight }]}>
+            <Text style={[styles.rateValue, { color: colors.primary }]}>{occupancyRate}%</Text>
+            <Text style={[styles.rateLabel, { color: colors.secondary }]}>occupied</Text>
           </View>
         </View>
         <DonutChart data={roomChart} centerText={`${occupancyRate}%`} centerSub="occupied" />
       </View>
 
       <SectionTitle title="Fee status" />
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Current fee collection</Text>
-        <Text style={styles.chartSubtitle}>Live totals from the backend</Text>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.chartTitle, { color: colors.text }]}>Current fee collection</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Live totals from the backend</Text>
         <DonutChart data={feeChart} centerText={String(dashboard.totalFees)} centerSub="fees" />
-        <View style={styles.outstandingBox}>
-          <Text style={styles.outstandingLabel}>Outstanding amount</Text>
-          <Text style={styles.outstandingAmount}>{money(dashboard.outstandingFees)}</Text>
+        <View style={[styles.outstandingBox, { backgroundColor: colors.dangerLight }]}>
+          <Text style={[styles.outstandingLabel, { color: colors.danger }]}>Outstanding amount</Text>
+          <Text style={[styles.outstandingAmount, { color: colors.danger }]}>{money(dashboard.outstandingFees)}</Text>
         </View>
       </View>
 
       <SectionTitle title="Repair requests" />
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Repair status</Text>
-        <Text style={styles.chartSubtitle}>Current request workflow</Text>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.chartTitle, { color: colors.text }]}>Repair status</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Current request workflow</Text>
         <DonutChart data={repairChart} centerText={String(dashboard.totalRepairRequests)} centerSub="requests" />
       </View>
 
       <SectionTitle title="Payment proof review" />
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Proof status</Text>
-        <Text style={styles.chartSubtitle}>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.chartTitle, { color: colors.text }]}>Proof status</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>
           Payments are made outside StayNexa; this dashboard reviews submitted proof.
         </Text>
         <DonutChart
           data={[
-            { label: "Submitted", value: paymentProofStats.submitted, color: COLORS.warning },
-            { label: "Approved", value: paymentProofStats.approved, color: COLORS.success },
-            { label: "Rejected", value: paymentProofStats.rejected, color: COLORS.danger },
+            { label: "Submitted", value: paymentProofStats.submitted, color: colors.warning },
+            { label: "Approved", value: paymentProofStats.approved, color: colors.success },
+            { label: "Rejected", value: paymentProofStats.rejected, color: colors.danger },
           ]}
           centerText={String(payments.length)}
           centerSub="proofs"
@@ -139,15 +142,15 @@ export function DashboardScreen({
       </View>
 
       <SectionTitle title="Approved payment activity" />
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Approved payments by month</Text>
-        <Text style={styles.chartSubtitle}>Only approved payment proofs are included.</Text>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Text style={[styles.chartTitle, { color: colors.text }]}>Approved payments by month</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Only approved payment proofs are included.</Text>
         {monthlyPaymentBars.some((item) => item.value > 0) ? (
           <BarChart
             data={monthlyPaymentBars.map((item) => ({
               label: item.label,
               value: Math.round(item.value),
-              color: COLORS.primary,
+              color: colors.primary,
             }))}
           />
         ) : (
@@ -160,9 +163,9 @@ export function DashboardScreen({
       </View>
 
       <SectionTitle title="Recent payment proofs" />
-      <View style={styles.chartCard}>
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         {recentPayments.length === 0 ? (
-          <Text style={styles.noDataText}>No payment proofs have been submitted.</Text>
+          <Text style={[styles.noDataText, { color: colors.secondary }]}>No payment proofs have been submitted.</Text>
         ) : (
           recentPayments.map((payment) => {
             const status = String(payment.status || "APPROVED").toUpperCase();
@@ -170,21 +173,21 @@ export function DashboardScreen({
               status === "SUBMITTED" || status === "PENDING" ? "SUBMITTED" : status;
             const statusStyle =
               proofStatus === "APPROVED"
-                ? { bg: COLORS.successLight, fg: COLORS.success }
+                ? { bg: colors.successLight, fg: colors.success }
                 : proofStatus === "REJECTED"
-                  ? { bg: COLORS.dangerLight, fg: COLORS.danger }
-                  : { bg: COLORS.warningLight, fg: COLORS.warning };
+                  ? { bg: colors.dangerLight, fg: colors.danger }
+                  : { bg: colors.warningLight, fg: colors.warning };
 
             return (
-              <View key={payment.id} style={styles.paymentRow}>
-                <View style={styles.paymentIcon}>
-                  <Ionicons name="image-outline" size={19} color={COLORS.primary} />
+              <View key={payment.id} style={[styles.paymentRow, { borderBottomColor: colors.border }]}>
+                <View style={[styles.paymentIcon, { backgroundColor: colors.surfaceSecondary || colors.card }]}>
+                  <Ionicons name="image-outline" size={19} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.paymentAmount}>
+                  <Text style={[styles.paymentAmount, { color: colors.text }]}>
                     {money(Number(payment.amount || 0))}
                   </Text>
-                  <Text style={styles.paymentMeta}>
+                  <Text style={[styles.paymentMeta, { color: colors.secondary }]}>
                     {payment.paymentDate || payment.submittedAt || payment.createdAt || "-"}
                   </Text>
                 </View>
@@ -199,9 +202,17 @@ export function DashboardScreen({
         )}
       </View>
 
-      <View style={styles.liveUpdateCard}>
-        <Ionicons name="sync-outline" size={19} color={COLORS.primary} />
-        <Text style={styles.liveUpdateText}>
+      <View
+        style={[
+          styles.liveUpdateCard,
+          {
+            backgroundColor: isDark ? colors.card : colors.primaryLight,
+            borderColor: isDark ? colors.border : "#BFDBFE",
+          },
+        ]}
+      >
+        <Ionicons name="sync-outline" size={19} color={colors.primary} />
+        <Text style={[styles.liveUpdateText, { color: isDark ? colors.text : colors.primaryDark }]}>
           Dashboard auto-refreshes every 4 seconds and also refreshes immediately after changes.
         </Text>
       </View>

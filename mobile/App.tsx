@@ -25,8 +25,10 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 
@@ -97,6 +99,10 @@ function AppContent() {
         setPage("dashboard");
       },
       onRenterDataNeeded: (token: string, hostelId: string, userId: string) => {
+        data.setToken(token);
+        if (hostelId) {
+          data.setSelectedHostelId(hostelId);
+        }
         if (setCurrentRenterDocRef.current) {
           void data.loadRenterData(token, hostelId, userId, setCurrentRenterDocRef.current);
         }
@@ -177,6 +183,9 @@ function AppContent() {
     if (!auth.currentRenterDoc) throw new Error("Missing renter profile.");
     if (!auth.token) throw new Error("You are not signed in.");
 
+    const hostelId = data.selectedHostelId || auth.currentRenterDoc.hostelId;
+    if (!hostelId) throw new Error("Hostel ID is missing from your profile.");
+
     const form = new FormData();
     form.append("file", {
       uri: params.proofUri,
@@ -196,7 +205,7 @@ function AppContent() {
       throw new Error(uploadData.message || "Unable to upload the payment proof.");
     }
 
-    await data.request(`/hostels/${data.selectedHostelId}/payment-proofs`, {
+    await data.request(`/hostels/${hostelId}/payment-proofs`, {
       method: "POST",
       body: JSON.stringify({
         renterId: auth.currentRenterDoc.id,
@@ -211,7 +220,7 @@ function AppContent() {
     if (auth.currentUser) {
       await data.loadRenterData(
         auth.token!,
-        data.selectedHostelId,
+        hostelId,
         auth.currentUser.id,
         auth.setCurrentRenterDoc,
       );
@@ -223,7 +232,10 @@ function AppContent() {
     description: string;
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   }) {
-    await data.request(`/hostels/${data.selectedHostelId}/repairs`, {
+    const hostelId = data.selectedHostelId || auth.currentRenterDoc?.hostelId;
+    if (!hostelId) throw new Error("Hostel ID is missing from your profile.");
+
+    await data.request(`/hostels/${hostelId}/repairs`, {
       method: "POST",
       body: JSON.stringify({
         ...params,
@@ -234,7 +246,7 @@ function AppContent() {
     if (auth.currentUser) {
       await data.loadRenterData(
         auth.token!,
-        data.selectedHostelId,
+        hostelId,
         auth.currentUser.id,
         auth.setCurrentRenterDoc,
       );
@@ -386,6 +398,43 @@ function AppContent() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — token available but user profile not yet resolved (mid-auth guard)
+  // Prevents the admin dashboard from flashing during renter Google sign-in.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (auth.token && !auth.currentUser) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            backgroundColor: colors.background,
+            justifyContent: "center",
+            alignItems: "center",
+          },
+        ]}
+      >
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text
+          style={{
+            marginTop: 16,
+            color: colors.secondary,
+            fontSize: 14,
+            fontWeight: "600",
+            letterSpacing: 0.5,
+          }}
+        >
+          Signing you in…
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER — not authenticated
   // ─────────────────────────────────────────────────────────────────────────
   if (!auth.token) {
@@ -462,6 +511,99 @@ function AppContent() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — repair person portal
+  // ─────────────────────────────────────────────────────────────────────────
+  if (auth.currentUser?.role === "REPAIR_PERSON") {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
+        <View style={{ flex: 1 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingHorizontal: 18,
+              paddingVertical: 14,
+              backgroundColor: colors.card,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+            }}
+          >
+            <View>
+              <Text style={{ fontSize: 17, fontWeight: "800", color: colors.text }}>
+                Repairs & Maintenance Portal
+              </Text>
+              <Text style={{ fontSize: 12, color: colors.secondary, marginTop: 2 }}>
+                {auth.currentUser.firstName || auth.currentUser.email} • Technician
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => void auth.logout()}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                backgroundColor: COLORS.dangerLight,
+                borderRadius: 9,
+              }}
+            >
+              <Ionicons name="log-out-outline" size={16} color={COLORS.danger} />
+              <Text style={{ fontSize: 12, fontWeight: "700", color: COLORS.danger }}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+          <RepairsScreen
+            repairs={data.repairs}
+            renters={data.renters}
+            rooms={data.rooms}
+            selectedHostel={data.selectedHostel || data.hostels[0]}
+            showStatusModal={repairsHook.showStatusModal}
+            setShowStatusModal={repairsHook.setShowStatusModal}
+            showCreateModal={repairsHook.showCreateModal}
+            setShowCreateModal={repairsHook.setShowCreateModal}
+            selectedRepair={repairsHook.selectedRepair}
+            repairStatus={repairsHook.repairStatus}
+            setRepairStatus={repairsHook.setRepairStatus}
+            adminNotes={repairsHook.adminNotes}
+            setAdminNotes={repairsHook.setAdminNotes}
+            repairSaving={repairsHook.repairSaving}
+            onOpenStatusModal={(r) => repairsHook.openStatusModal(r)}
+            onUpdateStatus={(id, status, notes) =>
+              repairsHook.updateRepairStatus(id, status, notes)
+            }
+            newTitle={repairsHook.newTitle}
+            setNewTitle={repairsHook.setNewTitle}
+            newDescription={repairsHook.newDescription}
+            setNewDescription={repairsHook.setNewDescription}
+            newPriority={repairsHook.newPriority}
+            setNewPriority={repairsHook.setNewPriority}
+            newRenterId={repairsHook.newRenterId}
+            setNewRenterId={repairsHook.setNewRenterId}
+            newRoomId={repairsHook.newRoomId}
+            setNewRoomId={repairsHook.setNewRoomId}
+            repairPersons={repairsHook.repairPersons}
+            showAddPersonModal={false}
+            personSaving={false}
+            maintenanceTasks={repairsHook.maintenanceTasks}
+            onAddMaintenanceTask={repairsHook.addMaintenanceTask}
+            onUpdateMaintenanceTaskStatus={repairsHook.updateMaintenanceTaskStatus}
+            onDeleteMaintenanceTask={repairsHook.deleteMaintenanceTask}
+            onLoadMaintenanceTasks={repairsHook.loadMaintenanceTasks}
+            maintenanceSaving={repairsHook.maintenanceSaving}
+            onAddRepair={() => repairsHook.addRepair()}
+            onRefresh={() => void data.refreshAll()}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER — admin dashboard
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -508,6 +650,8 @@ function AppContent() {
               setRoomNumber={rooms.setRoomNumber}
               roomFloor={rooms.roomFloor}
               setRoomFloor={rooms.setRoomFloor}
+              roomCapacity={rooms.roomCapacity}
+              setRoomCapacity={rooms.setRoomCapacity}
               roomSaving={rooms.roomSaving}
               onAddRoom={() => void rooms.addRoom()}
               onDeleteRoom={(room) => rooms.deleteRoom(room)}
@@ -611,11 +755,13 @@ function AppContent() {
             />
           )}
 
-          {page === "fees" && (
-            <FeesScreen
+          {(page === "payments" || page === "fees") && (
+            <PaymentsScreen
               fees={data.fees}
+              payments={data.payments}
               renters={data.renters}
               activeRenters={data.activeRenters}
+              rooms={data.rooms}
               selectedHostel={data.selectedHostel}
               showFeeModal={fees.showFeeModal}
               setShowFeeModal={fees.setShowFeeModal}
@@ -634,11 +780,7 @@ function AppContent() {
               setFeeRenterPickerOpen={fees.setFeeRenterPickerOpen}
               onOpenFeeModal={() => fees.openFeeModal()}
               onAddFee={() => void fees.addFee()}
-              onRefresh={() => void data.refreshAll()}
-              onRemindFee={(feeId, renterName) =>
-                void notifications.remindFee(feeId, renterName)
-              }
-              onRemindAllUnpaid={() => notifications.remindAllUnpaid()}
+              onDeleteFee={(feeId) => void fees.deleteFee(feeId)}
               showGenerateModal={fees.showGenerateModal}
               setShowGenerateModal={fees.setShowGenerateModal}
               generateMonth={fees.generateMonth}
@@ -648,17 +790,15 @@ function AppContent() {
               generateSaving={fees.generateSaving}
               onGenerateMonthlyFees={() => void fees.generateMonthlyFees()}
               onMarkOverdue={() => void fees.markOverdueFees()}
-            />
-          )}
-
-          {page === "payments" && (
-            <PaymentsScreen
-              payments={data.payments}
-              renters={data.renters}
-              selectedHostel={data.selectedHostel}
               paymentActionId={payments.paymentActionId}
               onReviewPayment={(id, status) => payments.reviewPayment(id, status)}
+              onDeletePayment={(id) => void payments.deletePayment(id)}
+              onRemindFee={(feeId, renterName, customMsg) =>
+                void notifications.remindFee(feeId, renterName, customMsg)
+              }
+              onRemindAllUnpaid={() => notifications.remindAllUnpaid()}
               onRefresh={() => void data.refreshAll()}
+              onBack={() => setPage("more")}
             />
           )}
 
@@ -692,7 +832,21 @@ function AppContent() {
               setNewRenterId={repairsHook.setNewRenterId}
               newRoomId={repairsHook.newRoomId}
               setNewRoomId={repairsHook.setNewRoomId}
+              repairPersons={repairsHook.repairPersons}
+              showAddPersonModal={repairsHook.showAddPersonModal}
+              setShowAddPersonModal={repairsHook.setShowAddPersonModal}
+              personSaving={repairsHook.personSaving}
+              onAddRepairPerson={repairsHook.addRepairPerson}
+              onRemoveRepairPerson={repairsHook.removeRepairPerson}
+              onLoadRepairPersons={repairsHook.loadRepairPersons}
+              maintenanceTasks={repairsHook.maintenanceTasks}
+              onAddMaintenanceTask={repairsHook.addMaintenanceTask}
+              onUpdateMaintenanceTaskStatus={repairsHook.updateMaintenanceTaskStatus}
+              onDeleteMaintenanceTask={repairsHook.deleteMaintenanceTask}
+              onLoadMaintenanceTasks={repairsHook.loadMaintenanceTasks}
+              maintenanceSaving={repairsHook.maintenanceSaving}
               onAddRepair={() => repairsHook.addRepair()}
+              onDeleteRepair={(id, title) => void repairsHook.deleteRepair(id, title)}
               onRefresh={() => void data.refreshAll()}
               onBack={() => setPage("more")}
             />
@@ -706,6 +860,8 @@ function AppContent() {
               onSendBroadcast={(title, message, type) =>
                 notifications.sendBroadcast(title, message, type)
               }
+              onDeleteNotification={(id) => void notifications.deleteNotification(id)}
+              onClearAll={() => void notifications.clearAllNotifications()}
               onRefresh={() => void data.refreshAll()}
               onBack={() => setPage("more")}
             />
@@ -714,7 +870,7 @@ function AppContent() {
           {page === "more" && (
             <MoreScreen
               currentUser={auth.currentUser}
-              onNavigateToFees={() => setPage("fees")}
+              onNavigateToFees={() => setPage("payments")}
               onNavigateToPayments={() => setPage("payments")}
               onNavigateToRepairs={() => setPage("repairs")}
               onNavigateToNotifications={() => setPage("notifications")}

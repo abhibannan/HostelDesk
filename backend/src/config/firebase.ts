@@ -14,7 +14,9 @@ const app =
           clientEmail: env.FIREBASE_CLIENT_EMAIL,
           privateKey: env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
         }),
-        storageBucket: `${env.FIREBASE_PROJECT_ID}.appspot.com`,
+        ...(env.FIREBASE_STORAGE_BUCKET
+          ? { storageBucket: env.FIREBASE_STORAGE_BUCKET }
+          : {}),
       });
 
 if (!app) {
@@ -25,4 +27,5 @@ export const firebaseAuth = getAuth(app);
 
 export const db = getFirestore(app);
 
-export const storage = getStorage(app).bucket();
+const bucketName = env.FIREBASE_STORAGE_BUCKET || `${env.FIREBASE_PROJECT_ID}.appspot.com`;
+export const storage = getStorage(app).bucket(bucketName);

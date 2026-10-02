@@ -7,11 +7,11 @@ export interface NotificationActionsCallbacks {
 }
 
 export function useNotificationActions(cb: NotificationActionsCallbacks) {
-  async function remindFee(feeId: string, renterName: string) {
+  async function remindFee(feeId: string, renterName: string, customMessage?: string) {
     try {
       const res = await cb.request<{ message: string }>("/notifications/remind-fee", {
         method: "POST",
-        body: JSON.stringify({ feeId }),
+        body: JSON.stringify({ feeId, customMessage }),
       });
       Alert.alert(
         "Fee Reminder Sent",
@@ -88,5 +88,47 @@ export function useNotificationActions(cb: NotificationActionsCallbacks) {
     }
   }
 
-  return { remindFee, remindAllUnpaid, sendBroadcast };
+  async function deleteNotification(id: string) {
+    try {
+      await cb.request(`/notifications/${id}`, {
+        method: "DELETE",
+      });
+      await cb.onRefresh();
+    } catch (err) {
+      Alert.alert(
+        "Failed to delete notification",
+        err instanceof Error ? err.message : "Please try again.",
+      );
+    }
+  }
+
+  async function clearAllNotifications() {
+    Alert.alert(
+      "Clear All Notifications",
+      "Are you sure you want to clear all notifications?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await cb.request("/notifications/me/clear-all", {
+                method: "DELETE",
+              });
+              await cb.onRefresh();
+              Alert.alert("Cleared", "All notifications cleared.");
+            } catch (err) {
+              Alert.alert(
+                "Failed to clear notifications",
+                err instanceof Error ? err.message : "Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  return { remindFee, remindAllUnpaid, sendBroadcast, deleteNotification, clearAllNotifications };
 }

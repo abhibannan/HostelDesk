@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   signInWithEmailAndPassword,
+  signInWithCustomToken,
   signOut,
+  onAuthStateChanged,
 } from "firebase/auth";
 import {
   PieChart,
@@ -14,6 +16,8 @@ import {
 } from "recharts";
 import { auth } from "./firebase.ts";
 import RenterManagement from "./components/RenterManagement";
+import RepairManagement from "./components/RepairManagement";
+import RepairPortal from "./components/RepairPortal";
 import "./App.css";
 
 const API_URL = "http://localhost:3000/api/v1";
@@ -91,6 +95,7 @@ function App() {
   const [password, setPassword] = useState("");
 
   const [token, setToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
 
   const [dashboard, setDashboard] =
     useState<DashboardData | null>(null);
@@ -112,98 +117,156 @@ function App() {
   const [page, setPage] =
     useState<Page>("dashboard");
 
+  const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Restore authenticated session when page is refreshed or reopened
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        setToken(null);
+        setAuthUser(null);
+        setInitializing(false);
+        return;
+      }
+
+      try {
+        const idToken = await firebaseUser.getIdToken();
+        const headers = { Authorization: `Bearer ${idToken}` };
+
+        const meRes = await fetch(`${API_URL}/auth/me`, { headers });
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          const role = meData.user?.role;
+          setAuthUser(meData.user);
+
+          if (role === "REPAIR_PERSON") {
+            setToken(idToken);
+            setInitializing(false);
+            return;
+          }
+
+          if (role === "ADMIN" || role === "SUPER_ADMIN") {
+            const [hostelData, dashRes] = await Promise.all([
+              fetchHostels(idToken),
+              fetch(`${API_URL}/dashboard`, { headers }),
+            ]);
+            setToken(idToken);
+            setHostels(hostelData);
+            if (hostelData.length > 0) setSelectedHostelId(hostelData[0].id);
+            if (dashRes.ok) {
+              const dData = await dashRes.json();
+              if (dData.dashboard) setDashboard(dData.dashboard);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to restore web auth session:", err);
+      } finally {
+        setInitializing(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   async function login() {
     try {
       setLoading(true);
       setError("");
 
-      const credential =
-        await signInWithEmailAndPassword(
+      const identifier = email.trim();
+      let credentialEmail = identifier;
+      let usedCustomToken: string | null = null;
+
+      // If user typed a mobile number / phone (no @)
+      if (!identifier.includes("@")) {
+        // Try lookup by phone
+        const lookupRes = await fetch(`${API_URL}/auth/login-lookup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier }),
+        });
+
+        if (lookupRes.ok) {
+          const lookupData = await lookupRes.json();
+          if (lookupData.email) {
+            credentialEmail = lookupData.email;
+          }
+        } else {
+          // Fallback to repair-login custom token
+          const repRes = await fetch(`${API_URL}/auth/repair-login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier, password }),
+          });
+          if (repRes.ok) {
+            const repData = await repRes.json();
+            if (repData.customToken) {
+              usedCustomToken = repData.customToken;
+            }
+          } else {
+            throw new Error("No account found with this email or mobile number.");
+          }
+        }
+      }
+
+      let idToken: string;
+
+      if (usedCustomToken) {
+        const credential = await signInWithCustomToken(auth, usedCustomToken);
+        idToken = await credential.user.getIdToken();
+      } else {
+        const credential = await signInWithEmailAndPassword(
           auth,
-          email,
+          credentialEmail,
           password,
         );
-
-      const idToken =
-        await credential.user.getIdToken();
-
-      const response = await fetch(
-        `${API_URL}/auth/me`,
-        {
-          headers: {
-            Authorization: `Bearer ${idToken}`,
-          },
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Unable to load user profile",
-        );
+        idToken = await credential.user.getIdToken();
       }
 
-      const role = data.user?.role;
+      const headers = { Authorization: `Bearer ${idToken}` };
+      const meRes = await fetch(`${API_URL}/auth/me`, { headers });
+      const meData = await meRes.json();
+      if (!meRes.ok) {
+        throw new Error(meData.message || "Unable to load user profile");
+      }
 
-      if (
-        role !== "ADMIN" &&
-        role !== "SUPER_ADMIN"
-      ) {
+      const role = meData.user?.role;
+      setAuthUser(meData.user);
+
+      if (role === "REPAIR_PERSON") {
+        setToken(idToken);
+        return;
+      }
+
+      if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
         await signOut(auth);
-
-        throw new Error(
-          "This account does not have Admin access.",
-        );
+        throw new Error("This portal is for Admins and Repair Personnel only. Renters should use the mobile app.");
       }
+
+      // Fast parallel fetch for Admin
+      const [hostelData, dashRes] = await Promise.all([
+        fetchHostels(idToken),
+        fetch(`${API_URL}/dashboard`, { headers }),
+      ]);
 
       setToken(idToken);
-
-      // Load hostels
-      const hostelData =
-        await fetchHostels(idToken);
-
       setHostels(hostelData);
-
       if (hostelData.length > 0) {
-        setSelectedHostelId(
-          hostelData[0].id,
-        );
+        setSelectedHostelId(hostelData[0].id);
       }
 
-      // Load dashboard
-      const dashboardResponse =
-        await fetch(
-          `${API_URL}/dashboard`,
-          {
-            headers: {
-              Authorization: `Bearer ${idToken}`,
-            },
-          },
-        );
-
-      const dashboardData =
-        await dashboardResponse.json();
-
-      if (!dashboardResponse.ok) {
-        throw new Error(
-          dashboardData.message ||
-            "Unable to load dashboard",
-        );
+      if (dashRes.ok) {
+        const dData = await dashRes.json();
+        if (dData.dashboard) {
+          setDashboard(dData.dashboard);
+        }
       }
-
-      setDashboard(
-        dashboardData.dashboard,
-      );
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Login failed",
+        err instanceof Error ? err.message : "Login failed",
       );
     } finally {
       setLoading(false);
@@ -435,6 +498,7 @@ function App() {
     await signOut(auth);
 
     setToken(null);
+    setAuthUser(null);
     setDashboard(null);
     setHostels([]);
     setSelectedHostelId("");
@@ -1380,6 +1444,20 @@ function App() {
       );
     }
 
+    if (page === "repairs") {
+      if (!selectedHostelId) {
+        return (
+          <div className="empty-state">
+            <h3>Select a hostel first</h3>
+            <p>
+              Choose a hostel before managing repairs and technicians.
+            </p>
+          </div>
+        );
+      }
+      return <RepairManagement hostelId={selectedHostelId} />;
+    }
+
     return (
       <div className="empty-state">
         <h2>
@@ -1389,7 +1467,8 @@ function App() {
                 Page,
                 "dashboard" |
                   "renters" |
-                  "hostels"
+                  "hostels" |
+                  "repairs"
               >
             ]
           }
@@ -1402,6 +1481,17 @@ function App() {
     );
   }
 
+  if (initializing) {
+    return (
+      <div className="login-page" style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <div style={{ textAlign: "center", color: "#64748b" }}>
+          <h2 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>StayNexa</h2>
+          <p>Restoring session...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!token) {
     return (
       <div className="login-page">
@@ -1410,22 +1500,21 @@ function App() {
             StayNexa
           </div>
 
-          <h1>Admin Login</h1>
+          <h1>Portal Login</h1>
 
           <p className="subtitle">
-            Manage your hostels from one
-            place.
+            Admin & Staff Access Portal
           </p>
 
-          <label>Email</label>
+          <label>Email or Mobile Number</label>
 
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(event) =>
               setEmail(event.target.value)
             }
-            placeholder="Enter your email"
+            placeholder="e.g. admin@staynexa.com or 9876543210"
           />
 
           <label>Password</label>
@@ -1453,9 +1542,26 @@ function App() {
               ? "Signing in..."
               : "Login"}
           </button>
+
+          <p
+            style={{
+              marginTop: 18,
+              fontSize: 12.5,
+              color: "#64748b",
+              textAlign: "center",
+              lineHeight: 1.45,
+            }}
+          >
+            🔧 Repair technicians can enter their registered mobile number or email to access their Repair Portal.
+          </p>
         </div>
       </div>
     );
+  }
+
+  // Repair technicians go ONLY to their dedicated Repair Portal!
+  if (token && authUser?.role === "REPAIR_PERSON") {
+    return <RepairPortal user={authUser} token={token} onLogout={logout} />;
   }
 
   return (

@@ -44,6 +44,7 @@ interface FeesScreenProps {
   onRefresh: () => void;
   onRemindFee?: (feeId: string, renterName: string) => void;
   onRemindAllUnpaid?: () => void;
+  onDeleteFee?: (feeId: string) => void;
   // Recurring fee generation & overdue scan
   showGenerateModal?: boolean;
   setShowGenerateModal?: (v: boolean) => void;
@@ -91,6 +92,7 @@ export function FeesScreen(props: FeesScreenProps) {
     onRefresh,
     onRemindFee,
     onRemindAllUnpaid,
+    onDeleteFee,
     showGenerateModal = false,
     setShowGenerateModal,
     generateMonth = "",
@@ -113,6 +115,12 @@ export function FeesScreen(props: FeesScreenProps) {
           subtitle={selectedHostel?.name || "Select a hostel"}
           onRefresh={onRefresh}
         />
+        <View style={styles.infoBar}>
+          <Ionicons name="information-circle" size={16} color={COLORS.primary} />
+          <Text style={styles.infoBarText}>
+            Track resident rental dues, schedule recurring charges, and manage payments.
+          </Text>
+        </View>
         <View style={styles.actionRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.sectionTitle}>Fee records</Text>
@@ -209,15 +217,25 @@ export function FeesScreen(props: FeesScreenProps) {
                       <Text style={styles.feeDescription}>{fee.description}</Text>
                     ) : null}
                   </View>
-                  {remaining > 0 ? (
-                    <TouchableOpacity
-                      style={styles.cardRemindBtn}
-                      onPress={() => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter")}
-                    >
-                      <Ionicons name="notifications-outline" size={14} color={COLORS.primary} />
-                      <Text style={styles.cardRemindBtnText}>Remind</Text>
-                    </TouchableOpacity>
-                  ) : null}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    {remaining > 0 ? (
+                      <TouchableOpacity
+                        style={styles.cardRemindBtn}
+                        onPress={() => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter")}
+                      >
+                        <Ionicons name="notifications-outline" size={14} color={COLORS.primary} />
+                        <Text style={styles.cardRemindBtnText}>Remind</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {onDeleteFee ? (
+                      <TouchableOpacity
+                        style={styles.cardDeleteBtn}
+                        onPress={() => onDeleteFee(fee.id)}
+                      >
+                        <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                 </View>
               </View>
             );
@@ -243,7 +261,7 @@ export function FeesScreen(props: FeesScreenProps) {
                   <View>
                     <Text style={styles.modalTitle}>Add Fee</Text>
                     <Text style={styles.modalSubtitle}>
-                      Payment is intentionally not recorded here; this screen manages fee records only.
+                      Assign a fee schedule to an active resident.
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -584,5 +602,30 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 11,
     marginLeft: 3,
+  },
+  infoBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 15,
+    gap: 8,
+  },
+  infoBarText: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.primaryDark || "#1E40AF",
+    fontWeight: "500",
+  },
+  cardDeleteBtn: {
+    padding: 7,
+    borderRadius: 8,
+    backgroundColor: COLORS.dangerLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

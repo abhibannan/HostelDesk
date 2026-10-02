@@ -831,4 +831,80 @@ router.get(
   },
 );
 
+// Delete fee record
+router.delete(
+  "/:hostelId/fees/:feeId",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({
+          message: "Only administrators can delete fee records",
+        });
+        return;
+      }
+
+      const hostelId = typeof req.params.hostelId === "string" ? req.params.hostelId : "";
+      const feeId = typeof req.params.feeId === "string" ? req.params.feeId : "";
+
+      if (!hostelId || !feeId) {
+        res.status(400).json({ message: "Invalid ID parameters" });
+        return;
+      }
+
+      const feeRef = db.collection("fees").doc(feeId);
+      const feeDoc = await feeRef.get();
+
+      if (!feeDoc.exists || feeDoc.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Fee record not found" });
+        return;
+      }
+
+      const feeData = feeDoc.data();
+
+      // Delete fee doc
+      await feeRef.delete();
+
+      // Clean up linked payments
+      const linkedPayments = await db
+        .collection("payments")
+        .where("hostelId", "==", hostelId)
+        .where("feeId", "==", feeId)
+        .get();
+
+      const batch = db.batch();
+      linkedPayments.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      if (!linkedPayments.empty) {
+        await batch.commit();
+      }
+
+      await writeAuditLog({
+        actorId: req.authUser!.id,
+        action: "DELETE_FEE",
+        entityType: "FEE",
+        entityId: feeId,
+        metadata: {
+          hostelId,
+          renterId: feeData?.renterId,
+          month: feeData?.month,
+          amount: feeData?.amount,
+        },
+      });
+
+      res.json({
+        message: "Fee record and associated payments deleted successfully",
+        feeId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 export default router;

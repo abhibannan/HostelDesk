@@ -1,9 +1,10 @@
 import React from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "../constants/theme";
 import { Hostel } from "../types";
 import { Header, EmptyState } from "../components/common";
+import { COLORS } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface HostelsScreenProps {
   hostels: Hostel[];
@@ -18,9 +19,11 @@ export function HostelsScreen({
   onSelectHostel,
   onRefresh,
 }: HostelsScreenProps) {
+  const { colors, isDark } = useTheme();
+
   return (
     <ScrollView
-      style={styles.screen}
+      style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
     >
@@ -36,27 +39,38 @@ export function HostelsScreen({
           description="No hostels are assigned to this admin account."
         />
       ) : (
-        hostels.map((hostel) => (
-          <TouchableOpacity
-            key={hostel.id}
-            style={[styles.hostelCard, hostel.id === selectedHostelId && styles.hostelSelected]}
-            onPress={() => onSelectHostel(hostel.id)}
-          >
-            <View style={styles.hostelIcon}>
-              <Ionicons name="business" size={22} color={COLORS.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.hostelName}>{hostel.name}</Text>
-              <Text style={styles.hostelLocation}>{hostel.address || "Address not set"}</Text>
-              <Text style={styles.hostelLocation}>
-                {hostel.city || ""}
-                {hostel.city && hostel.state ? ", " : ""}
-                {hostel.state || ""}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.secondary} />
-          </TouchableOpacity>
-        ))
+        hostels.map((hostel) => {
+          const isSelected = hostel.id === selectedHostelId;
+          return (
+            <TouchableOpacity
+              key={hostel.id}
+              style={[
+                styles.hostelCard,
+                {
+                  backgroundColor: isSelected
+                    ? (isDark ? colors.surfaceSecondary : colors.primaryLight)
+                    : colors.card,
+                  borderColor: isSelected ? colors.primary : colors.border,
+                },
+              ]}
+              onPress={() => onSelectHostel(hostel.id)}
+            >
+              <View style={[styles.hostelIcon, { backgroundColor: isSelected ? colors.primary : colors.primaryLight }]}>
+                <Ionicons name="business" size={22} color={isSelected ? "#FFFFFF" : colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.hostelName, { color: colors.text }]}>{hostel.name}</Text>
+                <Text style={[styles.hostelLocation, { color: colors.secondary }]}>{hostel.address || "Address not set"}</Text>
+                <Text style={[styles.hostelLocation, { color: colors.secondary }]}>
+                  {hostel.city || ""}
+                  {hostel.city && hostel.state ? ", " : ""}
+                  {hostel.state || ""}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.secondary} />
+            </TouchableOpacity>
+          );
+        })
       )}
     </ScrollView>
   );

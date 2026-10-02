@@ -15,14 +15,14 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
+      // Allow requests with no origin (like mobile apps, native clients, curl)
       if (!origin) return callback(null, true);
       if (env.CORS_ORIGIN === "*") return callback(null, true);
       const allowedOrigins = env.CORS_ORIGIN.split(",").map((o) => o.trim());
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(null, true); // Permissive for mobile clients
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
   }),

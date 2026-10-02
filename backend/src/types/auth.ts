@@ -1,4 +1,4 @@
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "RENTER";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "RENTER" | "REPAIR_PERSON";
 export type UserStatus = "ACTIVE" | "DISABLED";
 
 export interface AuthUser {
@@ -11,6 +11,8 @@ export interface AuthUser {
   profilePhotoUrl: string | null;
   role: UserRole;
   status: UserStatus;
+  hostelIds?: string[];
+  specialty?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -4,6 +4,7 @@ import { firebaseAuth, db } from "../../config/firebase.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
 import { writeAuditLog } from "../../utils/audit.js";
+import { sendPasswordEmail } from "../../utils/mailer.js";
 
 const router = Router();
 
@@ -233,11 +234,225 @@ router.post("/forgot-password", async (req, res, next) => {
     }
 
     const email = parsed.data.email.toLowerCase().trim();
-    const resetLink = await firebaseAuth.generatePasswordResetLink(email);
+    let userRecord: import("firebase-admin/auth").UserRecord | null = null;
+    let displayName = "Resident";
+
+    try {
+      userRecord = await firebaseAuth.getUserByEmail(email);
+      if (userRecord?.displayName) displayName = userRecord.displayName;
+    } catch {
+      // Check Firestore renters collection if not in Auth directly
+      const renterSnap = await db.collection("renters").where("email", "==", email).limit(1).get();
+      const firstDoc = renterSnap.docs[0];
+      if (firstDoc) {
+        const rData = firstDoc.data();
+        displayName = rData.name || rData.fullName || "Resident";
+        if (rData.userId) {
+          try {
+            userRecord = await firebaseAuth.getUser(rData.userId);
+          } catch {}
+        }
+      }
+    }
+
+    if (!userRecord) {
+      // Return 200 to prevent user enumeration
+      res.json({
+        message: "If your email is registered, your new password has been sent to your inbox.",
+      });
+      return;
+    }
+
+    // Generate secure temporary password: Nexa@ + 6 alphanumeric
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let randomPart = "";
+    for (let i = 0; i < 6; i++) {
+      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const newPassword = `Nexa@${randomPart}`;
+
+    // Update password in Firebase Auth
+    await firebaseAuth.updateUser(userRecord.uid, {
+      password: newPassword,
+    });
+
+    // Send email to renter with new password
+    await sendPasswordEmail(email, newPassword, displayName);
+
+    await writeAuditLog({
+      actorId: userRecord.uid,
+      action: "RESET_PASSWORD",
+      entityType: "USER",
+      entityId: userRecord.uid,
+    });
 
     res.json({
-      message: "Password setup/reset link generated",
-      resetLink,
+      message: "A new password has been sent to your registered email address.",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Resolve email from email OR mobile number
+router.post("/login-lookup", async (req, res, next) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== "string") {
+      res.status(400).json({ message: "Identifier is required" });
+      return;
+    }
+    const clean = identifier.trim();
+
+    // 1. Try finding by email
+    if (clean.includes("@")) {
+      const emailSnap = await db
+        .collection("users")
+        .where("email", "==", clean.toLowerCase())
+        .limit(1)
+        .get();
+      if (!emailSnap.empty && emailSnap.docs[0]) {
+        const u = emailSnap.docs[0].data();
+        res.json({
+          found: true,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+        });
+        return;
+      }
+    }
+
+    // 2. Try finding by phone number
+    const digitsOnly = clean.replace(/\D/g, "");
+    const candidatePhones = Array.from(new Set([
+      clean,
+      digitsOnly,
+      digitsOnly.length >= 10 ? `+91${digitsOnly.slice(-10)}` : "",
+      digitsOnly.length >= 10 ? digitsOnly.slice(-10) : "",
+    ])).filter(Boolean);
+
+    for (const p of candidatePhones) {
+      const phoneSnap = await db
+        .collection("users")
+        .where("phone", "==", p)
+        .limit(1)
+        .get();
+      if (!phoneSnap.empty && phoneSnap.docs[0]) {
+        const u = phoneSnap.docs[0].data();
+        res.json({
+          found: true,
+          email: u.email,
+          phone: u.phone,
+          role: u.role,
+        });
+        return;
+      }
+    }
+
+    // 3. Also check repairPersons collection
+    for (const p of candidatePhones) {
+      const rpSnap = await db
+        .collection("repairPersons")
+        .where("phone", "==", p)
+        .limit(1)
+        .get();
+      if (!rpSnap.empty && rpSnap.docs[0]) {
+        const rp = rpSnap.docs[0].data();
+        res.json({
+          found: true,
+          email: rp.email,
+          phone: rp.phone,
+          role: "REPAIR_PERSON",
+        });
+        return;
+      }
+    }
+
+    res.status(404).json({ message: "No account found with this email or mobile number" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Repair login helper with Firebase custom token
+router.post("/repair-login", async (req, res, next) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== "string") {
+      res.status(400).json({ message: "Email or mobile number is required" });
+      return;
+    }
+    const clean = identifier.trim();
+    let email = clean.toLowerCase();
+
+    if (!clean.includes("@")) {
+      const digitsOnly = clean.replace(/\D/g, "");
+      const candidatePhones = Array.from(new Set([
+        clean,
+        digitsOnly,
+        digitsOnly.length >= 10 ? `+91${digitsOnly.slice(-10)}` : "",
+        digitsOnly.length >= 10 ? digitsOnly.slice(-10) : "",
+      ])).filter(Boolean);
+
+      let found = false;
+      for (const p of candidatePhones) {
+        const snap = await db
+          .collection("users")
+          .where("phone", "==", p)
+          .limit(1)
+          .get();
+        if (!snap.empty && snap.docs[0]) {
+          email = String(snap.docs[0].data().email || "");
+          found = true;
+          break;
+        }
+      }
+
+      if (!found) {
+        for (const p of candidatePhones) {
+          const snap = await db
+            .collection("repairPersons")
+            .where("phone", "==", p)
+            .limit(1)
+            .get();
+          if (!snap.empty && snap.docs[0]) {
+            email = String(snap.docs[0].data().email || "");
+            found = true;
+            break;
+          }
+        }
+      }
+
+      if (!found) {
+        res.status(404).json({ message: "No repair account found with this mobile number" });
+        return;
+      }
+    }
+
+    const userDocSnap = await db
+      .collection("users")
+      .where("email", "==", email)
+      .limit(1)
+      .get();
+
+    const userDoc = userDocSnap.docs[0];
+    if (!userDoc || !userDoc.exists) {
+      res.status(404).json({ message: "User account not found" });
+      return;
+    }
+
+    const userData = userDoc.data();
+    const customToken = await firebaseAuth.createCustomToken(userDoc.id);
+
+    res.json({
+      message: "Lookup successful",
+      email,
+      customToken,
+      user: {
+        id: userDoc.id,
+        ...userData,
+      },
     });
   } catch (error) {
     next(error);

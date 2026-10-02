@@ -14,6 +14,8 @@ export type Room = {
   floor?: string | number;
   status?: string;
   maxOccupants?: number;
+  description?: string | null;
+  amenities?: string | null;
 };
 
 
@@ -95,8 +97,20 @@ export type User = {
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
-  role: "SUPER_ADMIN" | "ADMIN" | "RENTER";
+  role: "SUPER_ADMIN" | "ADMIN" | "RENTER" | "REPAIR_PERSON";
   status?: string;
+};
+
+export type RepairPerson = {
+  id: string;
+  hostelId: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone: string;
+  specialty?: string;
+  status: string;
+  createdAt: string;
 };
 
 export type RenterTab = "details" | "fees" | "repairs" | "notifications";
@@ -125,6 +139,24 @@ export type Repair = {
   priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   status?: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
   adminNotes?: string | null;
+  assignedTo?: string | null;
+  assignedRepairPersonId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type MaintenanceTask = {
+  id: string;
+  hostelId: string;
+  title: string;
+  description?: string;
+  category?: string;
+  frequency: "ONE_TIME" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "BIANNUAL" | "ANNUAL";
+  scheduledDate: string;
+  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED";
+  assignedTo?: string | null;
+  assignedPersonName?: string | null;
+  notes?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };

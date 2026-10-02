@@ -282,7 +282,7 @@ router.post(
       }
 
       if (
-        room.data()?.status !== "ACTIVE"
+        room.data()?.status === "INACTIVE"
       ) {
         res.status(400).json({
           message: "Room is inactive",
@@ -290,19 +290,19 @@ router.post(
         return;
       }
 
-      /* Prevent two active renters in the same room */
+      /* Capacity check: allow multiple occupants up to maxOccupants (defaults to 2) */
 
+      const maxOccupants = Math.max(1, Number(room.data()?.maxOccupants || 2));
       const roomRenters = await db
         .collection("renters")
         .where("hostelId", "==", hostelId)
         .where("roomId", "==", roomId)
         .where("status", "==", "ACTIVE")
-        .limit(1)
         .get();
 
-      if (!roomRenters.empty) {
+      if (roomRenters.size >= maxOccupants) {
         res.status(409).json({
-          message: "Room already has an active renter",
+          message: `Room is already at full capacity (${roomRenters.size}/${maxOccupants} occupants)`,
         });
         return;
       }
@@ -1051,9 +1051,9 @@ router.patch(
         return;
       }
 
-      /* If changing room, verify new room */
+      /* If changing room, verify new room and capacity */
 
-      if (parsed.data.roomId) {
+      if (parsed.data.roomId && parsed.data.roomId !== renter.data()?.roomId) {
         const newRoom =
           await db
             .collection("rooms")
@@ -1077,12 +1077,27 @@ router.patch(
 
         if (
           newRoom.data()
-            ?.status !==
-          "ACTIVE"
+            ?.status ===
+          "INACTIVE"
         ) {
           res.status(400).json({
             message:
               "New room is inactive",
+          });
+          return;
+        }
+
+        const maxOccupants = Math.max(1, Number(newRoom.data()?.maxOccupants || 2));
+        const activeOccupantsSnap = await db
+          .collection("renters")
+          .where("hostelId", "==", hostelId)
+          .where("roomId", "==", parsed.data.roomId)
+          .where("status", "==", "ACTIVE")
+          .get();
+
+        if (activeOccupantsSnap.size >= maxOccupants) {
+          res.status(409).json({
+            message: `New room is already at full capacity (${activeOccupantsSnap.size}/${maxOccupants} occupants)`,
           });
           return;
         }
@@ -1105,7 +1120,43 @@ router.patch(
 
       await renterRef.update(renterUpdates);
 
-      // Also update linked user profile if address/contact details are provided
+      // When a renter leaves (status → INACTIVE or LEFT), purge their upcoming
+      // unpaid fees (dueDate >= today). Past/paid fees are kept for audit purposes.
+      if (parsed.data.status === "INACTIVE" || parsed.data.status === "LEFT") {
+        try {
+          const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+          const upcomingFeesSnap = await db
+            .collection("fees")
+            .where("hostelId", "==", hostelId)
+            .where("renterId", "==", renterId)
+            .where("status", "==", "PENDING")
+            .get();
+
+          const batch = db.batch();
+          let deletedCount = 0;
+
+          for (const feeDoc of upcomingFeesSnap.docs) {
+            const dueDate = String(feeDoc.data()?.dueDate ?? "");
+            // Only delete fees that are due today or in the future
+            if (dueDate >= today) {
+              batch.delete(feeDoc.ref);
+              deletedCount++;
+            }
+          }
+
+          if (deletedCount > 0) {
+            await batch.commit();
+            console.log(
+              `[RENTER_CHECKOUT] Purged ${deletedCount} upcoming fees for renter ${renterId} (status → ${parsed.data.status})`,
+            );
+          }
+        } catch (feeCleanupError) {
+          // Log but don't block the renter update
+          console.error("[RENTER_CHECKOUT] Failed to purge upcoming fees:", feeCleanupError);
+        }
+      }
+
+
       const renterUserId = renter.data()?.userId;
       if (renterUserId) {
         const userUpdates: Record<string, any> = {};
@@ -1215,35 +1266,83 @@ router.delete(
 
       const userRef = db.collection("users").doc(userId);
       const userSnapshot = await userRef.get();
-      const firebaseUid = String(userSnapshot.data()?.firebaseUid ?? "");
+      const userData = userSnapshot.data() ?? {};
+      const firebaseUid = String(userData.firebaseUid ?? "");
+      const renterFullName = `${userData.firstName ?? ""} ${userData.lastName ?? ""}`.trim() || "Former Resident";
+      const renterEmail = String(userData.email ?? "");
+      const renterPhone = String(userData.phone ?? "");
 
-      // Remove all Firestore data that belongs to this renter.
+      // PRESERVE FINANCIAL RECORDS: Stamp renter identity onto fees and payments so paid records & totals stay intact
+      const [feesSnap, paymentsSnap] = await Promise.all([
+        db
+          .collection("fees")
+          .where("hostelId", "==", hostelId)
+          .where("renterId", "==", renterId)
+          .get(),
+        db
+          .collection("payments")
+          .where("hostelId", "==", hostelId)
+          .where("renterId", "==", renterId)
+          .get(),
+      ]);
+
+      const batch = db.batch();
+      feesSnap.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          renterName: renterFullName,
+          renterEmail,
+          renterPhone,
+          isArchivedRenter: true,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      paymentsSnap.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          renterName: renterFullName,
+          renterEmail,
+          renterPhone,
+          isArchivedRenter: true,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      if (!feesSnap.empty || !paymentsSnap.empty) {
+        await batch.commit();
+      }
+
+      // Vacate room/bed if allocated
+      const roomId = renterData.roomId ? String(renterData.roomId) : null;
+      const bedId = renterData.bedId ? String(renterData.bedId) : null;
+      if (roomId && bedId) {
+        try {
+          const roomRef = db.collection("rooms").doc(roomId);
+          const roomSnap = await roomRef.get();
+          if (roomSnap.exists) {
+            const rData = roomSnap.data();
+            const beds = Array.isArray(rData?.beds) ? rData!.beds : [];
+            const updatedBeds = beds.map((b: any) =>
+              b.id === bedId || b.renterId === renterId
+                ? { ...b, isOccupied: false, renterId: null }
+                : b,
+            );
+            await roomRef.update({
+              beds: updatedBeds,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (roomErr) {
+          console.error("VACATE ROOM ERROR:", roomErr);
+        }
+      }
+
+      // Delete user notifications & transient uploads, but keep audit logs, fees, and payments
       await Promise.all([
-        deleteQueryDocuments(
-          db
-            .collection("fees")
-            .where("hostelId", "==", hostelId)
-            .where("renterId", "==", renterId),
-        ),
-        deleteQueryDocuments(
-          db
-            .collection("payments")
-            .where("hostelId", "==", hostelId)
-            .where("renterId", "==", renterId),
-        ),
-        deleteQueryDocuments(
-          db
-            .collection("repairs")
-            .where("hostelId", "==", hostelId)
-            .where("renterId", "==", renterId),
-        ),
         deleteQueryDocuments(
           db
             .collection("notifications")
             .where("userId", "==", userId),
         ),
-        deleteRenterRelatedFiles(userId),
-        deleteRenterAuditLogs(renterId, userId),
       ]);
 
       await renterRef.delete();
