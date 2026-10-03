@@ -733,79 +733,67 @@ router.get(
         )
         .get();
 
-      const renters =
-        await Promise.all(
-          snapshot.docs.map(
-            async (doc) => {
-              const data =
-                doc.data();
+      const userIds = Array.from(
+        new Set(
+          snapshot.docs
+            .map((doc) => String(doc.data().userId || ""))
+            .filter(Boolean),
+        ),
+      );
 
-              const [
-                user,
-                room,
-              ] = await Promise.all([
-                db
-                  .collection("users")
-                  .doc(
-                    String(
-                      data.userId,
-                    ),
-                  )
-                  .get(),
+      const roomIds = Array.from(
+        new Set(
+          snapshot.docs
+            .map((doc) => String(doc.data().roomId || ""))
+            .filter(Boolean),
+        ),
+      );
 
-                db
-                  .collection("rooms")
-                  .doc(
-                    String(
-                      data.roomId,
-                    ),
-                  )
-                  .get(),
-              ]);
+      const [userDocs, roomDocs] = await Promise.all([
+        userIds.length > 0
+          ? db.getAll(...userIds.map((id) => db.collection("users").doc(id)))
+          : [],
+        roomIds.length > 0
+          ? db.getAll(...roomIds.map((id) => db.collection("rooms").doc(id)))
+          : [],
+      ]);
 
-              return {
-                id: doc.id,
-                ...data,
+      const userMap = new Map<string, any>();
+      userDocs.forEach((doc) => {
+        if (doc.exists) userMap.set(doc.id, doc.data());
+      });
 
-                user: user.exists
-                  ? {
-                      id: user.id,
-                      firstName:
-                        user.data()
-                          ?.firstName ??
-                        "",
-                      lastName:
-                        user.data()
-                          ?.lastName ??
-                        "",
-                      email:
-                        user.data()
-                          ?.email ??
-                        "",
-                      phone:
-                        user.data()
-                          ?.phone ??
-                        "",
-                    }
-                  : null,
+      const roomMap = new Map<string, any>();
+      roomDocs.forEach((doc) => {
+        if (doc.exists) roomMap.set(doc.id, doc.data());
+      });
 
-                room: room.exists
-                  ? {
-                      id: room.id,
-                      roomNumber:
-                        room.data()
-                          ?.roomNumber ??
-                        "",
-                      floor:
-                        room.data()
-                          ?.floor ??
-                        null,
-                    }
-                  : null,
-              };
-            },
-          ),
-        );
+      const renters = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        const userData = userMap.get(String(data.userId));
+        const roomData = roomMap.get(String(data.roomId));
+
+        return {
+          id: doc.id,
+          ...data,
+          user: userData
+            ? {
+                id: String(data.userId),
+                firstName: userData.firstName ?? "",
+                lastName: userData.lastName ?? "",
+                email: userData.email ?? "",
+                phone: userData.phone ?? "",
+              }
+            : null,
+          room: roomData
+            ? {
+                id: String(data.roomId),
+                roomNumber: roomData.roomNumber ?? "",
+                floor: roomData.floor ?? null,
+              }
+            : null,
+        };
+      });
 
       renters.sort((a, b) => {
         const aName =

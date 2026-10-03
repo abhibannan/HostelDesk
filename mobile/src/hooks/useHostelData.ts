@@ -152,10 +152,26 @@ export function useHostelData(): HostelDataState & HostelDataActions {
   );
 
   const refreshAll = useCallback(async () => {
-    if (!token || !selectedHostelId) return;
+    if (!token) return;
     setDataLoading(true);
     try {
-      await refreshHostelData(selectedHostelId);
+      // Re-fetch hostels list so any newly added hostel appears immediately
+      const hostelsData = await fetch(`${API_URL}/hostels`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(jsonResponse)
+        .catch(() => null);
+      if (hostelsData) {
+        const fetchedHostels = listFrom<Hostel>(hostelsData, "hostels");
+        setHostels(fetchedHostels);
+        if (!selectedHostelId && fetchedHostels.length > 0) {
+          setSelectedHostelId(fetchedHostels[0].id);
+        }
+      }
+
+      if (selectedHostelId) {
+        await refreshHostelData(selectedHostelId);
+      }
     } finally {
       setDataLoading(false);
     }

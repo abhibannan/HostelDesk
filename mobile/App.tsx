@@ -17,11 +17,16 @@
  *   RentersScreen, FeesScreen, PaymentsScreen, MoreScreen
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
+  BackHandler,
+  Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -62,6 +67,7 @@ import { PaymentsScreen } from "./src/screens/PaymentsScreen";
 import { RepairsScreen } from "./src/screens/RepairsScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
+import { ThemedAlertModal } from "./src/components/ThemedAlertModal";
 
 // Components
 import { BottomTab } from "./src/components/common";
@@ -70,13 +76,109 @@ import { BottomTab } from "./src/components/common";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const ADMIN_TABS: Tab[] = [
+  "dashboard",
+  "hostels",
+  "rooms",
+  "renters",
+  "more",
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AppContent
 // ─────────────────────────────────────────────────────────────────────────────
 function AppContent() {
   const { colors, toggleTheme, isDark, themeMode } = useTheme();
   const { getExpoPushToken, scheduleLocalNotification } = useExpoPushNotifications();
-  const [page, setPage] = useState<Tab>("dashboard");
+  const [page, setPageState] = useState<Tab>("dashboard");
+  const [pageHistory, setPageHistory] = useState<Tab[]>(["dashboard"]);
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set(["dashboard"]));
+  const [containerWidth, setContainerWidth] = useState(
+    Dimensions.get("window").width,
+  );
+  const pageScrollRef = useRef<ScrollView>(null);
+
+  const goBack = useCallback(() => {
+    setPageHistory((prev) => {
+      let prevPage: Tab = "dashboard";
+      let updated: Tab[] = ["dashboard"];
+      if (prev.length > 1) {
+        updated = prev.slice(0, -1);
+        prevPage = updated[updated.length - 1];
+      }
+      setPageState(prevPage);
+      if (ADMIN_TABS.includes(prevPage)) {
+        const targetIdx = ADMIN_TABS.indexOf(prevPage);
+        if (targetIdx >= 0 && containerWidth > 0) {
+          setTimeout(() => {
+            pageScrollRef.current?.scrollTo({
+              x: targetIdx * containerWidth,
+              animated: true,
+            });
+          }, 50);
+        }
+      }
+      return updated;
+    });
+  }, [containerWidth]);
+
+  // Hardware back button navigation on Android (prevents app exit)
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (pageHistory.length > 1 || page !== "dashboard") {
+        goBack();
+        return true; // Handled: prevent app exit
+      }
+      return false; // Exit app only if already on initial dashboard
+    };
+
+    const sub = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => sub.remove();
+  }, [pageHistory, page, goBack]);
+
+  const setPage = (next: Tab) => {
+    const normalized = next === "fees" ? "payments" : next;
+    setPageHistory((prev) => (prev[prev.length - 1] === normalized ? prev : [...prev, normalized]));
+    setPageState(normalized);
+    if (ADMIN_TABS.includes(normalized)) {
+      setVisitedTabs((prev) => {
+        if (prev.has(normalized)) return prev;
+        const copy = new Set(prev);
+        copy.add(normalized);
+        return copy;
+      });
+      const targetIdx = ADMIN_TABS.indexOf(normalized);
+      if (targetIdx >= 0 && containerWidth > 0) {
+        setTimeout(() => {
+          pageScrollRef.current?.scrollTo({
+            x: targetIdx * containerWidth,
+            animated: true,
+          });
+        }, 50);
+      }
+    }
+  };
+
+  const onPageScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetX = e.nativeEvent.contentOffset.x;
+    const idx = Math.round(offsetX / (containerWidth || 1));
+    if (idx >= 0 && idx < ADMIN_TABS.length) {
+      const targetTab = ADMIN_TABS[idx];
+      if (targetTab && targetTab !== page) {
+        setVisitedTabs((prev) => {
+          if (prev.has(targetTab)) return prev;
+          const copy = new Set(prev);
+          copy.add(targetTab);
+          return copy;
+        });
+        setPageState(targetTab);
+        setPageHistory((prev) =>
+          prev[prev.length - 1] === targetTab ? prev : [...prev, targetTab],
+        );
+      }
+    }
+  };
+
   const [renterSearch, setRenterSearch] = useState("");
 
   // ── Data layer ──────────────────────────────────────────────────────────────
@@ -597,291 +699,349 @@ function AppContent() {
             maintenanceSaving={repairsHook.maintenanceSaving}
             onAddRepair={() => repairsHook.addRepair()}
             onRefresh={() => void data.refreshAll()}
+            isRepairPerson={true}
           />
         </View>
       </SafeAreaView>
     );
   }
 
+  const isDetailSubPage =
+    page === "payments" ||
+    page === "fees" ||
+    page === "repairs" ||
+    page === "notifications";
+
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — admin dashboard
   // ─────────────────────────────────────────────────────────────────────────
-  return (
+  if (auth.currentUser?.role === "ADMIN" || auth.currentUser?.role === "SUPER_ADMIN") {
+    return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
       <View style={[styles.appContainer, { backgroundColor: colors.background }]}>
-        <View style={{ flex: 1 }}>
+        <View
+          style={[{ flex: 1 }, isDetailSubPage && { display: "none" }]}
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0 && Math.abs(w - containerWidth) > 1) {
+              setContainerWidth(w);
+            }
+          }}
+        >
+          <ScrollView
+            ref={pageScrollRef}
+            horizontal
+            pagingEnabled
+            directionalLockEnabled
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onMomentumScrollEnd={onPageScrollEnd}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ flexGrow: 1 }}
+          >
+            {ADMIN_TABS.map((tabKey) => {
+              const isCurrent =
+                page === tabKey || (tabKey === "payments" && page === "fees");
+              const isVisited = visitedTabs.has(tabKey) || isCurrent;
 
-          {page === "dashboard" && (
-            <DashboardScreen
-              dashboard={data.dashboard}
-              selectedHostel={data.selectedHostel}
-              payments={data.payments}
-              paymentProofStats={paymentProofStats}
-              recentPayments={recentPayments}
-              monthlyPaymentBars={monthlyPaymentBars}
-              onRefresh={() => void data.refreshAll()}
-            />
-          )}
+              return (
+                <View
+                  key={tabKey}
+                  style={{ width: containerWidth, flex: 1 }}
+                  collapsable={false}
+                >
+                  {isVisited ? (
+                    <>
+                      {tabKey === "dashboard" && (
+                        <DashboardScreen
+                          dashboard={data.dashboard}
+                          selectedHostel={data.selectedHostel}
+                          payments={data.payments}
+                          paymentProofStats={paymentProofStats}
+                          recentPayments={recentPayments}
+                          monthlyPaymentBars={monthlyPaymentBars}
+                          onRefresh={() => void data.refreshAll()}
+                          onNavigate={setPage}
+                        />
+                      )}
 
-          {page === "hostels" && (
-            <HostelsScreen
-              hostels={data.hostels}
-              selectedHostelId={data.selectedHostelId}
-              onSelectHostel={(id) => {
-                data.setSelectedHostelId(id);
-                setPage("dashboard");
-              }}
-              onRefresh={() => void data.refreshAll()}
-            />
-          )}
+                      {tabKey === "hostels" && (
+                        <HostelsScreen
+                          hostels={data.hostels}
+                          selectedHostelId={data.selectedHostelId}
+                          onSelectHostel={(id) => {
+                            data.setSelectedHostelId(id);
+                            void data.refreshHostelData(id);
+                            setPage("dashboard");
+                          }}
+                          onRefresh={() => void data.refreshAll()}
+                          request={data.request}
+                        />
+                      )}
 
-          {page === "rooms" && (
-            <RoomsScreen
-              rooms={data.rooms}
-              renters={data.renters}
-              selectedHostel={data.selectedHostel}
-              showRoomModal={rooms.showRoomModal}
-              setShowRoomModal={rooms.setShowRoomModal}
-              roomNumber={rooms.roomNumber}
-              setRoomNumber={rooms.setRoomNumber}
-              roomFloor={rooms.roomFloor}
-              setRoomFloor={rooms.setRoomFloor}
-              roomCapacity={rooms.roomCapacity}
-              setRoomCapacity={rooms.setRoomCapacity}
-              roomSaving={rooms.roomSaving}
-              onAddRoom={() => void rooms.addRoom()}
-              onDeleteRoom={(room) => rooms.deleteRoom(room)}
-              onRefresh={() => void data.refreshAll()}
-              request={data.request}
-              selectedHostelId={data.selectedHostelId}
-            />
-          )}
+                      {tabKey === "rooms" && (
+                        <RoomsScreen
+                          rooms={data.rooms}
+                          renters={data.renters}
+                          selectedHostel={data.selectedHostel}
+                          showRoomModal={rooms.showRoomModal}
+                          setShowRoomModal={rooms.setShowRoomModal}
+                          roomNumber={rooms.roomNumber}
+                          setRoomNumber={rooms.setRoomNumber}
+                          roomFloor={rooms.roomFloor}
+                          setRoomFloor={rooms.setRoomFloor}
+                          roomCapacity={rooms.roomCapacity}
+                          setRoomCapacity={rooms.setRoomCapacity}
+                          roomSaving={rooms.roomSaving}
+                          onAddRoom={() => void rooms.addRoom()}
+                          onDeleteRoom={(room) => rooms.deleteRoom(room)}
+                          onRefresh={() => void data.refreshAll()}
+                          request={data.request}
+                          selectedHostelId={data.selectedHostelId}
+                        />
+                      )}
 
-          {page === "renters" && (
-            <RentersScreen
-              renters={data.renters}
-              activeRenters={data.activeRenters}
-              rooms={data.rooms}
-              activeRooms={data.activeRooms}
-              selectedHostel={data.selectedHostel}
-              renterSearch={renterSearch}
-              setRenterSearch={setRenterSearch}
-              showRenterDetailsModal={renters.showRenterDetailsModal}
-              setShowRenterDetailsModal={renters.setShowRenterDetailsModal}
-              selectedRenter={renters.selectedRenter}
-              renterDetailsLoading={renters.renterDetailsLoading}
-              onOpenRenterDetails={(r) => void renters.openRenterDetails(r)}
-              onOpenEditRenter={(r) => renters.openEditRenter(r)}
-              onRemoveRenter={(r) => renters.removeRenter(r)}
-              showRenterModal={renters.showRenterModal}
-              setShowRenterModal={renters.setShowRenterModal}
-              onOpenRenterModal={renters.openRenterModal}
-              firstName={renters.firstName}
-              setFirstName={renters.setFirstName}
-              lastName={renters.lastName}
-              setLastName={renters.setLastName}
-              renterEmail={renters.renterEmail}
-              setRenterEmail={renters.setRenterEmail}
-              renterPhone={renters.renterPhone}
-              setRenterPhone={renters.setRenterPhone}
-              guardianName={renters.guardianName}
-              setGuardianName={renters.setGuardianName}
-              guardianPhone={renters.guardianPhone}
-              setGuardianPhone={renters.setGuardianPhone}
-              address={renters.address}
-              setAddress={renters.setAddress}
-              city={renters.city}
-              setCity={renters.setCity}
-              state={renters.state}
-              setState={renters.setState}
-              pincode={renters.pincode}
-              setPincode={renters.setPincode}
-              renterPassword={renters.renterPassword}
-              setRenterPassword={renters.setRenterPassword}
-              showRenterPassword={renters.showRenterPassword}
-              setShowRenterPassword={renters.setShowRenterPassword}
-              renterRoomId={renters.renterRoomId}
-              setRenterRoomId={renters.setRenterRoomId}
-              joiningDate={renters.joiningDate}
-              setJoiningDate={renters.setJoiningDate}
-              monthlyFee={renters.monthlyFee}
-              setMonthlyFee={renters.setMonthlyFee}
-              securityDeposit={renters.securityDeposit}
-              setSecurityDeposit={renters.setSecurityDeposit}
-              renterSaving={renters.renterSaving}
-              onAddRenter={() => void renters.addRenter()}
-              renterRoomPickerOpen={renters.renterRoomPickerOpen}
-              setRenterRoomPickerOpen={renters.setRenterRoomPickerOpen}
-              showEditRenterModal={renters.showEditRenterModal}
-              setShowEditRenterModal={renters.setShowEditRenterModal}
-              editingRenterId={renters.editingRenterId}
-              editFirstName={renters.editFirstName}
-              setEditFirstName={renters.setEditFirstName}
-              editLastName={renters.editLastName}
-              setEditLastName={renters.setEditLastName}
-              editPhone={renters.editPhone}
-              setEditPhone={renters.setEditPhone}
-              editGuardianName={renters.editGuardianName}
-              setEditGuardianName={renters.setEditGuardianName}
-              editGuardianPhone={renters.editGuardianPhone}
-              setEditGuardianPhone={renters.setEditGuardianPhone}
-              editAddress={renters.editAddress}
-              setEditAddress={renters.setEditAddress}
-              editCity={renters.editCity}
-              setEditCity={renters.setEditCity}
-              editState={renters.editState}
-              setEditState={renters.setEditState}
-              editPincode={renters.editPincode}
-              setEditPincode={renters.setEditPincode}
-              editRenterRoomId={renters.editRenterRoomId}
-              setEditRenterRoomId={renters.setEditRenterRoomId}
-              editJoiningDate={renters.editJoiningDate}
-              setEditJoiningDate={renters.setEditJoiningDate}
-              editMonthlyFee={renters.editMonthlyFee}
-              setEditMonthlyFee={renters.setEditMonthlyFee}
-              editSecurityDeposit={renters.editSecurityDeposit}
-              setEditSecurityDeposit={renters.setEditSecurityDeposit}
-              editRenterStatus={renters.editRenterStatus}
-              setEditRenterStatus={renters.setEditRenterStatus}
-              editRenterSaving={renters.editRenterSaving}
-              onUpdateRenter={() => void renters.updateRenter()}
-              editRenterRoomPickerOpen={renters.editRenterRoomPickerOpen}
-              setEditRenterRoomPickerOpen={renters.setEditRenterRoomPickerOpen}
-              onRefresh={() => void data.refreshAll()}
-            />
-          )}
+                      {tabKey === "renters" && (
+                        <RentersScreen
+                          renters={data.renters}
+                          activeRenters={data.activeRenters}
+                          rooms={data.rooms}
+                          activeRooms={data.activeRooms}
+                          selectedHostel={data.selectedHostel}
+                          renterSearch={renterSearch}
+                          setRenterSearch={setRenterSearch}
+                          showRenterDetailsModal={renters.showRenterDetailsModal}
+                          setShowRenterDetailsModal={renters.setShowRenterDetailsModal}
+                          selectedRenter={renters.selectedRenter}
+                          renterDetailsLoading={renters.renterDetailsLoading}
+                          onOpenRenterDetails={(r) => void renters.openRenterDetails(r)}
+                          onOpenEditRenter={(r) => renters.openEditRenter(r)}
+                          onRemoveRenter={(r) => renters.removeRenter(r)}
+                          showRenterModal={renters.showRenterModal}
+                          setShowRenterModal={renters.setShowRenterModal}
+                          onOpenRenterModal={renters.openRenterModal}
+                          firstName={renters.firstName}
+                          setFirstName={renters.setFirstName}
+                          lastName={renters.lastName}
+                          setLastName={renters.setLastName}
+                          renterEmail={renters.renterEmail}
+                          setRenterEmail={renters.setRenterEmail}
+                          renterPhone={renters.renterPhone}
+                          setRenterPhone={renters.setRenterPhone}
+                          guardianName={renters.guardianName}
+                          setGuardianName={renters.setGuardianName}
+                          guardianPhone={renters.guardianPhone}
+                          setGuardianPhone={renters.setGuardianPhone}
+                          address={renters.address}
+                          setAddress={renters.setAddress}
+                          city={renters.city}
+                          setCity={renters.setCity}
+                          state={renters.state}
+                          setState={renters.setState}
+                          pincode={renters.pincode}
+                          setPincode={renters.setPincode}
+                          renterPassword={renters.renterPassword}
+                          setRenterPassword={renters.setRenterPassword}
+                          showRenterPassword={renters.showRenterPassword}
+                          setShowRenterPassword={renters.setShowRenterPassword}
+                          renterRoomId={renters.renterRoomId}
+                          setRenterRoomId={renters.setRenterRoomId}
+                          joiningDate={renters.joiningDate}
+                          setJoiningDate={renters.setJoiningDate}
+                          monthlyFee={renters.monthlyFee}
+                          setMonthlyFee={renters.setMonthlyFee}
+                          securityDeposit={renters.securityDeposit}
+                          setSecurityDeposit={renters.setSecurityDeposit}
+                          renterSaving={renters.renterSaving}
+                          onAddRenter={() => void renters.addRenter()}
+                          renterRoomPickerOpen={renters.renterRoomPickerOpen}
+                          setRenterRoomPickerOpen={renters.setRenterRoomPickerOpen}
+                          showEditRenterModal={renters.showEditRenterModal}
+                          setShowEditRenterModal={renters.setShowEditRenterModal}
+                          editingRenterId={renters.editingRenterId}
+                          editFirstName={renters.editFirstName}
+                          setEditFirstName={renters.setEditFirstName}
+                          editLastName={renters.editLastName}
+                          setEditLastName={renters.setEditLastName}
+                          editPhone={renters.editPhone}
+                          setEditPhone={renters.setEditPhone}
+                          editGuardianName={renters.editGuardianName}
+                          setEditGuardianName={renters.setEditGuardianName}
+                          editGuardianPhone={renters.editGuardianPhone}
+                          setEditGuardianPhone={renters.setEditGuardianPhone}
+                          editAddress={renters.editAddress}
+                          setEditAddress={renters.setEditAddress}
+                          editCity={renters.editCity}
+                          setEditCity={renters.setEditCity}
+                          editState={renters.editState}
+                          setEditState={renters.setEditState}
+                          editPincode={renters.editPincode}
+                          setEditPincode={renters.setEditPincode}
+                          editRenterRoomId={renters.editRenterRoomId}
+                          setEditRenterRoomId={renters.setEditRenterRoomId}
+                          editJoiningDate={renters.editJoiningDate}
+                          setEditJoiningDate={renters.setEditJoiningDate}
+                          editMonthlyFee={renters.editMonthlyFee}
+                          setEditMonthlyFee={renters.setEditMonthlyFee}
+                          editSecurityDeposit={renters.editSecurityDeposit}
+                          setEditSecurityDeposit={renters.setEditSecurityDeposit}
+                          editRenterStatus={renters.editRenterStatus}
+                          setEditRenterStatus={renters.setEditRenterStatus}
+                          editRenterSaving={renters.editRenterSaving}
+                          onUpdateRenter={() => void renters.updateRenter()}
+                          editRenterRoomPickerOpen={renters.editRenterRoomPickerOpen}
+                          setEditRenterRoomPickerOpen={renters.setEditRenterRoomPickerOpen}
+                          onRefresh={() => void data.refreshAll()}
+                        />
+                      )}
 
-          {(page === "payments" || page === "fees") && (
-            <PaymentsScreen
-              fees={data.fees}
-              payments={data.payments}
-              renters={data.renters}
-              activeRenters={data.activeRenters}
-              rooms={data.rooms}
-              selectedHostel={data.selectedHostel}
-              showFeeModal={fees.showFeeModal}
-              setShowFeeModal={fees.setShowFeeModal}
-              feeRenterId={fees.feeRenterId}
-              setFeeRenterId={fees.setFeeRenterId}
-              feeMonth={fees.feeMonth}
-              setFeeMonth={fees.setFeeMonth}
-              feeAmount={fees.feeAmount}
-              setFeeAmount={fees.setFeeAmount}
-              feeDueDate={fees.feeDueDate}
-              setFeeDueDate={fees.setFeeDueDate}
-              feeDescription={fees.feeDescription}
-              setFeeDescription={fees.setFeeDescription}
-              feeSaving={fees.feeSaving}
-              feeRenterPickerOpen={fees.feeRenterPickerOpen}
-              setFeeRenterPickerOpen={fees.setFeeRenterPickerOpen}
-              onOpenFeeModal={() => fees.openFeeModal()}
-              onAddFee={() => void fees.addFee()}
-              onDeleteFee={(feeId) => void fees.deleteFee(feeId)}
-              showGenerateModal={fees.showGenerateModal}
-              setShowGenerateModal={fees.setShowGenerateModal}
-              generateMonth={fees.generateMonth}
-              setGenerateMonth={fees.setGenerateMonth}
-              generateDueDate={fees.generateDueDate}
-              setGenerateDueDate={fees.setGenerateDueDate}
-              generateSaving={fees.generateSaving}
-              onGenerateMonthlyFees={() => void fees.generateMonthlyFees()}
-              onMarkOverdue={() => void fees.markOverdueFees()}
-              paymentActionId={payments.paymentActionId}
-              onReviewPayment={(id, status) => payments.reviewPayment(id, status)}
-              onDeletePayment={(id) => void payments.deletePayment(id)}
-              onRemindFee={(feeId, renterName, customMsg) =>
-                void notifications.remindFee(feeId, renterName, customMsg)
-              }
-              onRemindAllUnpaid={() => notifications.remindAllUnpaid()}
-              onRefresh={() => void data.refreshAll()}
-              onBack={() => setPage("more")}
-            />
-          )}
-
-          {page === "repairs" && (
-            <RepairsScreen
-              repairs={data.repairs}
-              renters={data.renters}
-              rooms={data.rooms}
-              selectedHostel={data.selectedHostel}
-              showStatusModal={repairsHook.showStatusModal}
-              setShowStatusModal={repairsHook.setShowStatusModal}
-              showCreateModal={repairsHook.showCreateModal}
-              setShowCreateModal={repairsHook.setShowCreateModal}
-              selectedRepair={repairsHook.selectedRepair}
-              repairStatus={repairsHook.repairStatus}
-              setRepairStatus={repairsHook.setRepairStatus}
-              adminNotes={repairsHook.adminNotes}
-              setAdminNotes={repairsHook.setAdminNotes}
-              repairSaving={repairsHook.repairSaving}
-              onOpenStatusModal={(r) => repairsHook.openStatusModal(r)}
-              onUpdateStatus={(id, status, notes) =>
-                repairsHook.updateRepairStatus(id, status, notes)
-              }
-              newTitle={repairsHook.newTitle}
-              setNewTitle={repairsHook.setNewTitle}
-              newDescription={repairsHook.newDescription}
-              setNewDescription={repairsHook.setNewDescription}
-              newPriority={repairsHook.newPriority}
-              setNewPriority={repairsHook.setNewPriority}
-              newRenterId={repairsHook.newRenterId}
-              setNewRenterId={repairsHook.setNewRenterId}
-              newRoomId={repairsHook.newRoomId}
-              setNewRoomId={repairsHook.setNewRoomId}
-              repairPersons={repairsHook.repairPersons}
-              showAddPersonModal={repairsHook.showAddPersonModal}
-              setShowAddPersonModal={repairsHook.setShowAddPersonModal}
-              personSaving={repairsHook.personSaving}
-              onAddRepairPerson={repairsHook.addRepairPerson}
-              onRemoveRepairPerson={repairsHook.removeRepairPerson}
-              onLoadRepairPersons={repairsHook.loadRepairPersons}
-              maintenanceTasks={repairsHook.maintenanceTasks}
-              onAddMaintenanceTask={repairsHook.addMaintenanceTask}
-              onUpdateMaintenanceTaskStatus={repairsHook.updateMaintenanceTaskStatus}
-              onDeleteMaintenanceTask={repairsHook.deleteMaintenanceTask}
-              onLoadMaintenanceTasks={repairsHook.loadMaintenanceTasks}
-              maintenanceSaving={repairsHook.maintenanceSaving}
-              onAddRepair={() => repairsHook.addRepair()}
-              onDeleteRepair={(id, title) => void repairsHook.deleteRepair(id, title)}
-              onRefresh={() => void data.refreshAll()}
-              onBack={() => setPage("more")}
-            />
-          )}
-
-          {page === "notifications" && (
-            <NotificationsScreen
-              notifications={data.notifications}
-              selectedHostel={data.selectedHostel}
-              hostels={data.hostels}
-              onSendBroadcast={(title, message, type) =>
-                notifications.sendBroadcast(title, message, type)
-              }
-              onDeleteNotification={(id) => void notifications.deleteNotification(id)}
-              onClearAll={() => void notifications.clearAllNotifications()}
-              onRefresh={() => void data.refreshAll()}
-              onBack={() => setPage("more")}
-            />
-          )}
-
-          {page === "more" && (
-            <MoreScreen
-              currentUser={auth.currentUser}
-              onNavigateToFees={() => setPage("payments")}
-              onNavigateToPayments={() => setPage("payments")}
-              onNavigateToRepairs={() => setPage("repairs")}
-              onNavigateToNotifications={() => setPage("notifications")}
-              onNavigateToDashboard={() => setPage("dashboard")}
-              onRefresh={() => void data.refreshAll()}
-              onLogout={() => void auth.logout()}
-              themeMode={themeMode}
-              onToggleTheme={toggleTheme}
-            />
-          )}
+                      {tabKey === "more" && (
+                        <MoreScreen
+                          currentUser={auth.currentUser}
+                          onNavigateToFees={() => setPage("payments")}
+                          onNavigateToPayments={() => setPage("payments")}
+                          onNavigateToRepairs={() => setPage("repairs")}
+                          onNavigateToNotifications={() => setPage("notifications")}
+                          onNavigateToDashboard={() => setPage("dashboard")}
+                          onRefresh={() => void data.refreshAll()}
+                          onLogout={() => void auth.logout()}
+                          themeMode={themeMode}
+                          onToggleTheme={toggleTheme}
+                        />
+                      )}
+                    </>
+                  ) : null}
+                </View>
+              );
+            })}
+          </ScrollView>
         </View>
+
+        {isDetailSubPage && (
+          <View style={{ flex: 1 }}>
+            {(page === "payments" || page === "fees") && (
+              <PaymentsScreen
+                fees={data.fees}
+                payments={data.payments}
+                renters={data.renters}
+                activeRenters={data.activeRenters}
+                rooms={data.rooms}
+                selectedHostel={data.selectedHostel}
+                showFeeModal={fees.showFeeModal}
+                setShowFeeModal={fees.setShowFeeModal}
+                feeRenterId={fees.feeRenterId}
+                setFeeRenterId={fees.setFeeRenterId}
+                feeMonth={fees.feeMonth}
+                setFeeMonth={fees.setFeeMonth}
+                feeAmount={fees.feeAmount}
+                setFeeAmount={fees.setFeeAmount}
+                feeDueDate={fees.feeDueDate}
+                setFeeDueDate={fees.setFeeDueDate}
+                feeDescription={fees.feeDescription}
+                setFeeDescription={fees.setFeeDescription}
+                feeSaving={fees.feeSaving}
+                feeRenterPickerOpen={fees.feeRenterPickerOpen}
+                setFeeRenterPickerOpen={fees.setFeeRenterPickerOpen}
+                onOpenFeeModal={() => fees.openFeeModal()}
+                onAddFee={() => void fees.addFee()}
+                onDeleteFee={(feeId) => void fees.deleteFee(feeId)}
+                showGenerateModal={fees.showGenerateModal}
+                setShowGenerateModal={fees.setShowGenerateModal}
+                generateMonth={fees.generateMonth}
+                setGenerateMonth={fees.setGenerateMonth}
+                generateDueDate={fees.generateDueDate}
+                setGenerateDueDate={fees.setGenerateDueDate}
+                generateSaving={fees.generateSaving}
+                onGenerateMonthlyFees={() => void fees.generateMonthlyFees()}
+                onMarkOverdue={() => void fees.markOverdueFees()}
+                paymentActionId={payments.paymentActionId}
+                onReviewPayment={(id, status, hostelId) =>
+                  payments.reviewPayment(id, status, hostelId || data.selectedHostelId)
+                }
+                onDeletePayment={(id, hostelId) =>
+                  void payments.deletePayment(id, hostelId || data.selectedHostelId)
+                }
+                onRemindFee={(feeId, renterName, customMsg) =>
+                  void notifications.remindFee(feeId, renterName, customMsg)
+                }
+                onRemindAllUnpaid={() => notifications.remindAllUnpaid()}
+                onRefresh={() => void data.refreshAll()}
+                onBack={goBack}
+              />
+            )}
+
+            {page === "repairs" && (
+              <RepairsScreen
+                repairs={data.repairs}
+                renters={data.renters}
+                rooms={data.rooms}
+                selectedHostel={data.selectedHostel}
+                showStatusModal={repairsHook.showStatusModal}
+                setShowStatusModal={repairsHook.setShowStatusModal}
+                showCreateModal={repairsHook.showCreateModal}
+                setShowCreateModal={repairsHook.setShowCreateModal}
+                selectedRepair={repairsHook.selectedRepair}
+                repairStatus={repairsHook.repairStatus}
+                setRepairStatus={repairsHook.setRepairStatus}
+                adminNotes={repairsHook.adminNotes}
+                setAdminNotes={repairsHook.setAdminNotes}
+                repairSaving={repairsHook.repairSaving}
+                onOpenStatusModal={(r) => repairsHook.openStatusModal(r)}
+                onUpdateStatus={(id, status, notes) =>
+                  repairsHook.updateRepairStatus(id, status, notes)
+                }
+                newTitle={repairsHook.newTitle}
+                setNewTitle={repairsHook.setNewTitle}
+                newDescription={repairsHook.newDescription}
+                setNewDescription={repairsHook.setNewDescription}
+                newPriority={repairsHook.newPriority}
+                setNewPriority={repairsHook.setNewPriority}
+                newRenterId={repairsHook.newRenterId}
+                setNewRenterId={repairsHook.setNewRenterId}
+                newRoomId={repairsHook.newRoomId}
+                setNewRoomId={repairsHook.setNewRoomId}
+                repairPersons={repairsHook.repairPersons}
+                showAddPersonModal={repairsHook.showAddPersonModal}
+                setShowAddPersonModal={repairsHook.setShowAddPersonModal}
+                personSaving={repairsHook.personSaving}
+                onAddRepairPerson={repairsHook.addRepairPerson}
+                onUpdateRepairPerson={repairsHook.updateRepairPerson}
+                onRemoveRepairPerson={repairsHook.removeRepairPerson}
+                onLoadRepairPersons={repairsHook.loadRepairPersons}
+                maintenanceTasks={repairsHook.maintenanceTasks}
+                onAddMaintenanceTask={repairsHook.addMaintenanceTask}
+                onUpdateMaintenanceTaskStatus={repairsHook.updateMaintenanceTaskStatus}
+                onDeleteMaintenanceTask={repairsHook.deleteMaintenanceTask}
+                onLoadMaintenanceTasks={repairsHook.loadMaintenanceTasks}
+                maintenanceSaving={repairsHook.maintenanceSaving}
+                onAddRepair={() => repairsHook.addRepair()}
+                onDeleteRepair={(id, title) => void repairsHook.deleteRepair(id, title)}
+                onRefresh={() => void data.refreshAll()}
+                onBack={goBack}
+                isRepairPerson={false}
+              />
+            )}
+
+            {page === "notifications" && (
+              <NotificationsScreen
+                notifications={data.notifications}
+                selectedHostel={data.selectedHostel}
+                hostels={data.hostels}
+                onSendBroadcast={(title, message, type, scope) =>
+                  notifications.sendBroadcast(title, message, type, scope)
+                }
+                onDeleteNotification={(id) => void notifications.deleteNotification(id)}
+                onClearAll={() => void notifications.clearAllNotifications()}
+                onRefresh={() => void data.refreshAll()}
+                onBack={goBack}
+              />
+            )}
+          </View>
+        )}
 
         {/* Bottom navigation */}
         <View
@@ -889,7 +1049,7 @@ function AppContent() {
             styles.bottomNav,
             {
               borderTopColor: colors.border,
-              backgroundColor: colors.background,
+              backgroundColor: colors.card,
             },
           ]}
         >
@@ -945,6 +1105,38 @@ function AppContent() {
       ) : null}
     </SafeAreaView>
   );
+  }
+
+  // Fallback while auth role is resolving to prevent any admin UI flashes
+  return (
+    <SafeAreaView
+      style={[
+        styles.safeArea,
+        {
+          backgroundColor: colors.background,
+          justifyContent: "center",
+          alignItems: "center",
+        },
+      ]}
+    >
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.background}
+      />
+      <ActivityIndicator size="large" color={COLORS.primary} />
+      <Text
+        style={{
+          marginTop: 16,
+          color: colors.secondary,
+          fontSize: 14,
+          fontWeight: "600",
+          letterSpacing: 0.5,
+        }}
+      >
+        Signing you in…
+      </Text>
+    </SafeAreaView>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -955,6 +1147,7 @@ export default function App() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AppContent />
+        <ThemedAlertModal />
       </ThemeProvider>
     </SafeAreaProvider>
   );

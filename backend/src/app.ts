@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 
 import { env } from "./config/env.js";
 import apiRouter from "./routes/index.js";
@@ -11,6 +12,7 @@ const app = express();
 app.disable("x-powered-by");
 
 app.use(helmet());
+app.use(compression());
 
 app.use(
   cors({

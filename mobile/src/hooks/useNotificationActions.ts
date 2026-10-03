@@ -61,14 +61,20 @@ export function useNotificationActions(cb: NotificationActionsCallbacks) {
     );
   }
 
-  async function sendBroadcast(title: string, message: string, type: string) {
+  async function sendBroadcast(
+    title: string,
+    message: string,
+    type: string,
+    scope: "CURRENT" | "ALL" = "CURRENT",
+  ) {
     try {
+      const targetHostelId = scope === "ALL" ? "ALL" : cb.selectedHostelId || "ALL";
       const res = await cb.request<{ message: string; count: number }>(
         "/notifications/broadcast",
         {
           method: "POST",
           body: JSON.stringify({
-            hostelId: cb.selectedHostelId || "ALL",
+            hostelId: targetHostelId,
             title,
             message,
             type,

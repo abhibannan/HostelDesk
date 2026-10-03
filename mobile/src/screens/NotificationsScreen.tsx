@@ -22,7 +22,12 @@ interface NotificationsScreenProps {
   notifications: Notification[];
   selectedHostel?: Hostel;
   hostels: Hostel[];
-  onSendBroadcast: (title: string, message: string, type: string) => Promise<void>;
+  onSendBroadcast: (
+    title: string,
+    message: string,
+    type: string,
+    scope?: "CURRENT" | "ALL",
+  ) => Promise<void>;
   onDeleteNotification?: (id: string) => Promise<void> | void;
   onClearAll?: () => Promise<void> | void;
   onRefresh: () => void;
@@ -57,7 +62,12 @@ export function NotificationsScreen({
 
     setSending(true);
     try {
-      await onSendBroadcast(broadcastTitle.trim(), broadcastMessage.trim(), broadcastType);
+      await onSendBroadcast(
+        broadcastTitle.trim(),
+        broadcastMessage.trim(),
+        broadcastType,
+        targetScope,
+      );
       setShowBroadcastModal(false);
       setBroadcastTitle("");
       setBroadcastMessage("");

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,19 +11,19 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface LoginScreenProps {
   loginRole: "RENTER" | "ADMIN";
   setLoginRole: (r: "RENTER" | "ADMIN") => void;
   // Renter fields
-  showRenterEmailFallback: boolean;
-  setShowRenterEmailFallback: (v: boolean) => void;
+  showRenterEmailFallback?: boolean;
+  setShowRenterEmailFallback?: (v: boolean) => void;
   renterEmailInput: string;
   setRenterEmailInput: (v: string) => void;
   renterPasswordInput: string;
   setRenterPasswordInput: (v: string) => void;
-  onLoginWithGoogle: () => void;
+  onLoginWithGoogle?: () => void;
   onLoginRenterWithEmail: () => void;
   onSendPasswordResetLink?: () => void;
   // Admin fields
@@ -63,231 +63,196 @@ export function LoginScreen({
   error,
   setError,
 }: LoginScreenProps) {
+  const { colors, isDark } = useTheme();
+  const [showRenterPassword, setShowRenterPassword] = useState(false);
+
   return (
     <KeyboardAvoidingView
-      style={styles.loginWrapper}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={[styles.loginWrapper, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 20}
     >
       <ScrollView
-        contentContainerStyle={styles.loginContent}
+        contentContainerStyle={[styles.loginContent, { paddingBottom: 140 }]}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustKeyboardInsets={true}
       >
         <View style={styles.loginInner}>
-          {/* Brand */}
-          <View style={styles.brandMark}>
-            <Ionicons name="business" size={23} color="#FFFFFF" />
+          {/* Brand Header */}
+          <View style={styles.brandHero}>
+            <View style={[styles.brandMarkOuter, { backgroundColor: colors.primaryLight }]}>
+              <View style={[styles.brandMark, { backgroundColor: colors.primary }]}>
+                <Ionicons name="business" size={26} color="#FFFFFF" />
+              </View>
+            </View>
+            <Text style={[styles.brandTitle, { color: colors.text }]}>StayNexa</Text>
           </View>
-          <Text style={styles.brandText}>StayNexa</Text>
 
-          {/* Role Switcher */}
-          <View style={styles.loginRoleSwitch}>
-            <TouchableOpacity
-              style={[
-                styles.loginRoleTab,
-                loginRole === "RENTER" && styles.loginRoleTabActive,
-              ]}
-              onPress={() => {
-                setLoginRole("RENTER");
-                setError("");
-              }}
-            >
-              <Ionicons
-                name={loginRole === "RENTER" ? "person" : "person-outline"}
-                size={16}
-                color={loginRole === "RENTER" ? COLORS.primary : COLORS.secondary}
-              />
-              <Text
+          {/* Elevated Floating Auth Card */}
+          <View style={[styles.authCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Role Switcher */}
+            <View style={[styles.loginRoleSwitch, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+              <TouchableOpacity
                 style={[
-                  styles.loginRoleTabText,
-                  loginRole === "RENTER" && styles.loginRoleTabTextActive,
+                  styles.loginRoleTab,
+                  loginRole === "RENTER" && [styles.loginRoleTabActive, { backgroundColor: colors.card, borderColor: colors.border }],
                 ]}
+                onPress={() => {
+                  setLoginRole("RENTER");
+                  setError("");
+                }}
               >
-                Resident / Renter
-              </Text>
-            </TouchableOpacity>
+                <Ionicons
+                  name={loginRole === "RENTER" ? "person" : "person-outline"}
+                  size={16}
+                  color={loginRole === "RENTER" ? colors.primary : colors.secondary}
+                />
+                <Text
+                  style={[
+                    styles.loginRoleTabText,
+                    { color: colors.secondary },
+                    loginRole === "RENTER" && [styles.loginRoleTabTextActive, { color: colors.primary }],
+                  ]}
+                >
+                  Resident
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.loginRoleTab,
-                loginRole === "ADMIN" && styles.loginRoleTabActive,
-              ]}
-              onPress={() => {
-                setLoginRole("ADMIN");
-                setError("");
-              }}
-            >
-              <Ionicons
-                name={
-                  loginRole === "ADMIN"
-                    ? "shield-checkmark"
-                    : "shield-checkmark-outline"
-                }
-                size={16}
-                color={loginRole === "ADMIN" ? COLORS.primary : COLORS.secondary}
-              />
-              <Text
+              <TouchableOpacity
                 style={[
-                  styles.loginRoleTabText,
-                  loginRole === "ADMIN" && styles.loginRoleTabTextActive,
+                  styles.loginRoleTab,
+                  loginRole === "ADMIN" && [styles.loginRoleTabActive, { backgroundColor: colors.card, borderColor: colors.border }],
                 ]}
+                onPress={() => {
+                  setLoginRole("ADMIN");
+                  setError("");
+                }}
               >
-                Hostel Admin
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <Ionicons
+                  name={
+                    loginRole === "ADMIN"
+                      ? "shield-checkmark"
+                      : "shield-checkmark-outline"
+                  }
+                  size={16}
+                  color={loginRole === "ADMIN" ? colors.primary : colors.secondary}
+                />
+                <Text
+                  style={[
+                    styles.loginRoleTabText,
+                    { color: colors.secondary },
+                    loginRole === "ADMIN" && [styles.loginRoleTabTextActive, { color: colors.primary }],
+                  ]}
+                >
+                  Hostel Admin
+                </Text>
+              </TouchableOpacity>
+            </View>
 
           {/* ── RENTER PANEL ── */}
           {loginRole === "RENTER" ? (
             <>
-              <Text style={styles.loginTitle}>Resident Portal</Text>
-              <Text style={styles.loginSubtitle}>
-                Sign in with your verified Google account to view fees, payments,
-                upload receipts & file maintenance complaints.
-              </Text>
+              <Text style={[styles.loginTitle, { color: colors.text }]}>Resident Portal</Text>
 
-              {/* Google sign-in */}
-              <TouchableOpacity
-                style={[styles.googleButton, loading && styles.btnDisabled]}
-                disabled={loading}
-                onPress={onLoginWithGoogle}
-              >
-                {loading ? (
-                  <ActivityIndicator color={COLORS.text} />
-                ) : (
-                  <>
-                    <View style={styles.googleIconBox}>
-                      <Ionicons name="logo-google" size={18} color="#EA4335" />
-                    </View>
-                    <Text style={styles.googleButtonText}>Continue with Google</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              {/* Email fallback */}
-              {showRenterEmailFallback ? (
-                <>
-                  <Text style={[styles.label, { marginTop: 18 }]}>Email</Text>
-                  <View style={styles.inputWithIcon}>
-                    <Ionicons name="mail-outline" size={20} color={COLORS.secondary} />
-                    <TextInput
-                      style={styles.inputWithIconText}
-                      value={renterEmailInput}
-                      onChangeText={setRenterEmailInput}
-                      placeholder="Your registered email"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                  </View>
-
-                  <Text style={styles.label}>Password</Text>
-                  <View style={styles.inputWithIcon}>
-                    <Ionicons
-                      name="lock-closed-outline"
-                      size={20}
-                      color={COLORS.secondary}
-                    />
-                    <TextInput
-                      style={styles.inputWithIconText}
-                      value={renterPasswordInput}
-                      onChangeText={setRenterPasswordInput}
-                      placeholder="Your password"
-                      placeholderTextColor="#94A3B8"
-                      secureTextEntry
-                      autoCapitalize="none"
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.primaryButton, { marginTop: 6 }]}
-                    disabled={loading}
-                    onPress={onLoginRenterWithEmail}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Text style={styles.primaryButtonText}>Sign In</Text>
-                        <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {onSendPasswordResetLink ? (
-                    <TouchableOpacity
-                      style={{ marginTop: 14, alignItems: "center" }}
-                      onPress={onSendPasswordResetLink}
-                    >
-                      <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: "600" }}>
-                        Need to set or forgot password? Send Setup Link
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  <TouchableOpacity
-                    style={{ marginTop: 12, alignItems: "center" }}
-                    onPress={() => setShowRenterEmailFallback(false)}
-                  >
-                    <Text style={styles.renterHintText}>← Back to Google Sign-In</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <View style={styles.googleNoticeBox}>
-                    <Ionicons name="shield-checkmark" size={16} color={COLORS.primary} />
-                    <Text style={styles.googleNoticeText}>
-                      Resident accounts authenticate via Google. Ensure your Google account
-                      email matches your registered renter email.
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    style={{ marginTop: 16, alignItems: "center" }}
-                    onPress={() => setShowRenterEmailFallback(true)}
-                  >
-                    <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: "700" }}>
-                      Sign in with Email & Password →
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </>
-          ) : (
-            /* ── ADMIN PANEL ── */
-            <>
-              <Text style={styles.loginTitle}>Admin Login</Text>
-              <Text style={styles.loginSubtitle}>
-                Hostel wardens, managers and maintenance technicians can sign in with their registered Email or Mobile number.
-              </Text>
-
-              <Text style={styles.label}>Email or Mobile Number</Text>
-              <View style={styles.inputWithIcon}>
-                <Ionicons name="person-outline" size={20} color={COLORS.secondary} />
+              <Text style={[styles.label, { color: colors.text }]}>Email</Text>
+              <View style={[styles.inputWithIcon, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons name="mail-outline" size={20} color={colors.secondary} />
                 <TextInput
-                  style={styles.inputWithIconText}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Enter email or mobile number"
-                  placeholderTextColor="#94A3B8"
+                  style={[styles.inputWithIconText, { color: colors.text }]}
+                  value={renterEmailInput}
+                  onChangeText={setRenterEmailInput}
+                  placeholder="Enter registered email"
+                  placeholderTextColor={colors.secondary}
+                  keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
               </View>
 
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.inputWithIcon}>
+              <Text style={[styles.label, { color: colors.text }]}>Password</Text>
+              <View style={[styles.inputWithIcon, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                 <Ionicons
                   name="lock-closed-outline"
                   size={20}
-                  color={COLORS.secondary}
+                  color={colors.secondary}
                 />
                 <TextInput
-                  style={styles.inputWithIconText}
+                  style={[styles.inputWithIconText, { color: colors.text }]}
+                  value={renterPasswordInput}
+                  onChangeText={setRenterPasswordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor={colors.secondary}
+                  secureTextEntry={!showRenterPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowRenterPassword((v) => !v)}>
+                  <Ionicons
+                    name={showRenterPassword ? "eye-off-outline" : "eye-outline"}
+                    size={21}
+                    color={colors.secondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryButton, { backgroundColor: colors.primary, marginTop: 12 }]}
+                disabled={loading}
+                onPress={onLoginRenterWithEmail}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Text style={styles.primaryButtonText}>Sign In as Resident</Text>
+                    <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {onSendPasswordResetLink ? (
+                <TouchableOpacity
+                  style={{ marginTop: 16, alignItems: "center" }}
+                  onPress={onSendPasswordResetLink}
+                >
+                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: "600" }}>
+                    Need to set or forgot password? Send Setup Link
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          ) : (
+            /* ── ADMIN PANEL ── */
+            <>
+              <Text style={[styles.loginTitle, { color: colors.text }]}>Admin Login</Text>
+
+              <Text style={[styles.label, { color: colors.text }]}>Email or Mobile Number</Text>
+              <View style={[styles.inputWithIcon, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons name="person-outline" size={20} color={colors.secondary} />
+                <TextInput
+                  style={[styles.inputWithIconText, { color: colors.text }]}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Enter email or mobile number"
+                  placeholderTextColor={colors.secondary}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              <Text style={[styles.label, { color: colors.text }]}>Password</Text>
+              <View style={[styles.inputWithIcon, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={20}
+                  color={colors.secondary}
+                />
+                <TextInput
+                  style={[styles.inputWithIconText, { color: colors.text }]}
                   value={password}
                   onChangeText={setPassword}
                   placeholder="Enter your password"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.secondary}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                 />
@@ -295,13 +260,13 @@ export function LoginScreen({
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                     size={21}
-                    color={COLORS.secondary}
+                    color={colors.secondary}
                   />
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
-                style={[styles.primaryButton, { marginTop: 12 }]}
+                style={[styles.primaryButton, { backgroundColor: colors.primary, marginTop: 12 }]}
                 disabled={loading}
                 onPress={onLoginAdmin}
               >
@@ -309,7 +274,7 @@ export function LoginScreen({
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.primaryButtonText}>Sign In</Text>
+                    <Text style={styles.primaryButtonText}>Sign In to Management</Text>
                     <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
                   </>
                 )}
@@ -320,7 +285,7 @@ export function LoginScreen({
                   style={{ marginTop: 14, alignItems: "center" }}
                   onPress={onSendPasswordResetLink}
                 >
-                  <Text style={{ fontSize: 13, color: COLORS.primary, fontWeight: "600" }}>
+                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: "600" }}>
                     Forgot password? Send Reset Email
                   </Text>
                 </TouchableOpacity>
@@ -330,48 +295,78 @@ export function LoginScreen({
 
           {/* Error box */}
           {error ? (
-            <View style={styles.errorBox}>
-              <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
-              <Text style={styles.errorText}>{error}</Text>
+            <View style={[styles.errorBox, { backgroundColor: colors.dangerLight, borderColor: isDark ? "rgba(239,68,68,0.3)" : "#FECACA" }]}>
+              <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
+              <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
             </View>
           ) : null}
+
+          {/* Trust Footer */}
+          <View style={styles.trustBadge}>
+            <Ionicons name="shield-checkmark-outline" size={13} color={colors.secondary} />
+            <Text style={[styles.trustBadgeText, { color: colors.secondary }]}>
+              256-bit Encrypted Cloud Operations • StayNexa
+            </Text>
+          </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
+);
 }
 
 const styles = StyleSheet.create({
-  loginWrapper: { flex: 1, backgroundColor: "#FFFFFF" },
-  loginContent: { flexGrow: 1, justifyContent: "center", padding: 22 },
+  loginWrapper: { flex: 1 },
+  loginContent: { flexGrow: 1, justifyContent: "center", padding: 20, paddingVertical: 36 },
   loginInner: {
     width: "100%",
+    maxWidth: 440,
     alignSelf: "center",
-    transform: [{ translateY: -35 }],
+  },
+  brandHero: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  brandMarkOuter: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
   },
   brandMark: {
     width: 52,
     height: 52,
     borderRadius: 16,
-    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  brandText: {
-    fontSize: 18,
+  brandTitle: {
+    fontSize: 28,
     fontWeight: "800",
-    color: COLORS.primary,
-    marginBottom: 24,
+    letterSpacing: -0.6,
+  },
+  authCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 22,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   loginRoleSwitch: {
     flexDirection: "row",
-    backgroundColor: COLORS.grayFill,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 4,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
   loginRoleTab: {
     flex: 1,
@@ -379,124 +374,74 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 11,
     gap: 6,
   },
   loginRoleTabActive: {
-    backgroundColor: COLORS.card,
-    shadowColor: "#000",
+    borderWidth: 1,
+    shadowColor: "#0F172A",
     shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowRadius: 4,
     elevation: 2,
   },
-  loginRoleTabText: { fontSize: 12, fontWeight: "600", color: COLORS.secondary },
-  loginRoleTabTextActive: { color: COLORS.primary, fontWeight: "700" },
-  loginTitle: { fontSize: 30, fontWeight: "800", color: COLORS.text },
-  loginSubtitle: {
-    marginTop: 7,
-    marginBottom: 26,
-    fontSize: 15,
-    lineHeight: 22,
-    color: COLORS.secondary,
-  },
+  loginRoleTabText: { fontSize: 13, fontWeight: "600" },
+  loginRoleTabTextActive: { fontWeight: "700" },
+  loginTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4, marginBottom: 18 },
   label: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    color: COLORS.text,
-    marginBottom: 7,
-    marginTop: 3,
+    marginBottom: 6,
+    marginTop: 4,
   },
   inputWithIcon: {
     minHeight: 52,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 13,
-    paddingHorizontal: 13,
+    borderRadius: 14,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 13,
+    marginBottom: 12,
   },
   inputWithIconText: {
     flex: 1,
     minHeight: 50,
     marginLeft: 9,
-    color: COLORS.text,
-    fontSize: 15,
+    fontSize: 14,
   },
   primaryButton: {
-    minHeight: 54,
+    minHeight: 52,
     borderRadius: 14,
-    backgroundColor: COLORS.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 9,
+    gap: 8,
     paddingHorizontal: 16,
-    marginTop: 8,
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 2,
   },
   primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
-  googleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
-    borderRadius: 14,
-    minHeight: 54,
-    paddingHorizontal: 16,
-    gap: 12,
-    marginTop: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  googleIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#FEE2E2",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googleButtonText: { fontSize: 15, fontWeight: "700", color: COLORS.text },
-  googleNoticeBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: COLORS.primaryLight,
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
-  },
-  googleNoticeText: {
-    flex: 1,
-    fontSize: 12,
-    color: COLORS.primaryDark,
-    lineHeight: 17,
-    fontWeight: "500",
-  },
-  renterHintText: {
-    marginTop: 12,
-    fontSize: 12,
-    color: COLORS.secondary,
-    textAlign: "center",
-    lineHeight: 18,
-  },
   errorBox: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     borderWidth: 1,
-    borderColor: "#FECACA",
-    backgroundColor: COLORS.dangerLight,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
     marginTop: 14,
   },
-  errorText: { flex: 1, color: COLORS.danger, fontSize: 13, lineHeight: 19 },
+  errorText: { flex: 1, fontSize: 12, lineHeight: 18 },
   btnDisabled: { opacity: 0.6 },
+  trustBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 18,
+  },
+  trustBadgeText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
 });

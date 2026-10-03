@@ -10,6 +10,7 @@ import {
   TextInput,
   ActivityIndicator,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
@@ -73,6 +74,11 @@ interface RepairsScreenProps {
   onDeleteRepair?: (repairId: string, title?: string) => Promise<void> | void;
   onRefresh: () => void;
   onBack?: () => void;
+  isRepairPerson?: boolean;
+  onUpdateRepairPerson?: (
+    personId: string,
+    data: { name?: string; phone?: string; specialty?: string; status?: "ACTIVE" | "INACTIVE" }
+  ) => Promise<void>;
 }
 
 export function RepairsScreen({
@@ -115,6 +121,8 @@ export function RepairsScreen({
   onDeleteRepair,
   onRefresh,
   onBack,
+  isRepairPerson = false,
+  onUpdateRepairPerson,
 }: RepairsScreenProps) {
   const { colors, isDark } = useTheme();
   const [activeOption, setActiveOption] = useState<"menu" | "repairs" | "maintenance" | "personnel">("menu");
@@ -129,6 +137,17 @@ export function RepairsScreen({
   const [personPhone, setPersonPhone] = useState("");
   const [personSpecialty, setPersonSpecialty] = useState("General Maintenance");
   const [personPassword, setPersonPassword] = useState("Repair@123");
+
+  // Local edit repair person state
+  const [editingPerson, setEditingPerson] = useState<RepairPerson | null>(null);
+  const [editPersonName, setEditPersonName] = useState("");
+  const [editPersonPhone, setEditPersonPhone] = useState("");
+  const [editPersonSpecialty, setEditPersonSpecialty] = useState("General Maintenance");
+  const [editPersonStatus, setEditPersonStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+  const [editPersonSaving, setEditPersonSaving] = useState(false);
+
+  // Info modal state (for 'i' icon)
+  const [infoModalText, setInfoModalText] = useState<{ title: string; desc: string } | null>(null);
 
   // Local schedule maintenance task state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -308,9 +327,6 @@ export function RepairsScreen({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Repair Complaints</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Resident tickets, breakdown fixes, plumbing & electrical
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(239,68,68,0.2)" : COLORS.dangerLight }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: COLORS.danger }]}>{repairs.length} Tickets</Text>
@@ -332,9 +348,6 @@ export function RepairsScreen({
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Scheduled Maintenance</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Routine servicing, water tank cleaning, pest control & checks
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(245,158,11,0.25)" : COLORS.warningLight }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: COLORS.warning }]}>{maintenanceTasks.length} Tasks</Text>
@@ -342,86 +355,28 @@ export function RepairsScreen({
                 <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
               </TouchableOpacity>
 
-              {/* Option 3: Personnel */}
-              <TouchableOpacity
-                style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => {
-                  setActiveOption("personnel");
-                  onLoadRepairPersons?.();
-                }}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(59,130,246,0.18)" : COLORS.primaryLight }]}>
-                  <Ionicons name="people-outline" size={22} color={COLORS.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.menuCardTitle, { color: colors.text }]}>Technicians & Personnel</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Contact directory of electricians, plumbers & workers
-                  </Text>
-                </View>
-                <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.grayFill }]}>
-                  <Text style={[styles.menuCounterBadgeText, { color: colors.text }]}>{repairPersons.length} Staff</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
-              </TouchableOpacity>
-
-              {/* Quick Actions Section */}
-              <Text style={[styles.menuSectionDividerText, { color: colors.secondary }]}>QUICK ACTIONS</Text>
-
-              {/* Action 1: Log Repair */}
-              <TouchableOpacity
-                style={[styles.menuActionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                onPress={() => { setShowCreateModal(true); setActiveOption("repairs"); }}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.menuActionIconBox, { backgroundColor: COLORS.dangerLight }]}>
-                  <Ionicons name="add-circle" size={18} color={COLORS.danger} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.menuActionTitle, { color: colors.text }]}>Log Repair Complaint</Text>
-                  <Text style={[styles.menuActionDesc, { color: colors.secondary }]}>
-                    Create a new repair ticket for a room or resident
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
-              </TouchableOpacity>
-
-              {/* Action 2: Schedule Maintenance */}
-              <TouchableOpacity
-                style={[styles.menuActionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                onPress={() => setShowScheduleModal(true)}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.menuActionIconBox, { backgroundColor: COLORS.warningLight }]}>
-                  <Ionicons name="calendar" size={18} color={COLORS.warning} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.menuActionTitle, { color: colors.text }]}>Schedule Routine Maintenance</Text>
-                  <Text style={[styles.menuActionDesc, { color: colors.secondary }]}>
-                    Plan recurring servicing or preventive facility checks
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
-              </TouchableOpacity>
-
-              {/* Action 3: Add Technician */}
-              <TouchableOpacity
-                style={[styles.menuActionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                onPress={() => setAddPersonVisible(true)}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.menuActionIconBox, { backgroundColor: COLORS.primaryLight }]}>
-                  <Ionicons name="person-add" size={18} color={COLORS.primary} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.menuActionTitle, { color: colors.text }]}>Register Technician</Text>
-                  <Text style={[styles.menuActionDesc, { color: colors.secondary }]}>
-                    Add an electrician, plumber or contractor profile
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
-              </TouchableOpacity>
+              {/* Option 3: Personnel (Hidden for repair person) */}
+              {!isRepairPerson && (
+                <TouchableOpacity
+                  style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  onPress={() => {
+                    setActiveOption("personnel");
+                    onLoadRepairPersons?.();
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(59,130,246,0.18)" : COLORS.primaryLight }]}>
+                    <Ionicons name="people-outline" size={22} color={COLORS.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuCardTitle, { color: colors.text }]}>Technicians & Personnel</Text>
+                  </View>
+                  <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.grayFill }]}>
+                    <Text style={[styles.menuCounterBadgeText, { color: colors.text }]}>{repairPersons.length} Staff</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         ) : (
@@ -435,18 +390,46 @@ export function RepairsScreen({
               <Text style={[styles.menuBackToMenuText, { color: colors.primary }]}>Care Menu</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.menuOptionSelectorBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-              onPress={() => setShowMenuSheet(true)}
-            >
-              <Ionicons name="options-outline" size={14} color={colors.text} />
-              <Text style={[styles.menuOptionSelectorText, { color: colors.text }]} numberOfLines={1}>
-                {activeOption === "repairs" && "Repairs"}
-                {activeOption === "maintenance" && "Maintenance"}
-                {activeOption === "personnel" && "Personnel"}
-              </Text>
-              <Ionicons name="chevron-down" size={13} color={colors.secondary} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.menuOptionSelectorBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                onPress={() => setShowMenuSheet(true)}
+              >
+                <Ionicons name="options-outline" size={14} color={colors.text} />
+                <Text style={[styles.menuOptionSelectorText, { color: colors.text }]} numberOfLines={1}>
+                  {activeOption === "repairs" && "Repairs"}
+                  {activeOption === "maintenance" && "Maintenance"}
+                  {activeOption === "personnel" && "Personnel"}
+                </Text>
+                <Ionicons name="chevron-down" size={13} color={colors.secondary} />
+              </TouchableOpacity>
+
+              {/* Info 'i' button replacing the option description */}
+              <TouchableOpacity
+                style={[styles.infoIconBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                onPress={() => {
+                  if (activeOption === "repairs") {
+                    setInfoModalText({
+                      title: "Repair Complaints",
+                      desc: "Resident tickets, breakdown fixes, plumbing & electrical requests submitted by tenants.",
+                    });
+                  } else if (activeOption === "maintenance") {
+                    setInfoModalText({
+                      title: "Scheduled Maintenance",
+                      desc: "Routine servicing, water tank cleaning, pest control & facility preventive checks.",
+                    });
+                  } else if (activeOption === "personnel") {
+                    setInfoModalText({
+                      title: "Technicians & Personnel",
+                      desc: "Contact directory of electricians, plumbers, carpenters & staff assigned to this property.",
+                    });
+                  }
+                }}
+                accessibilityLabel="Section Info"
+              >
+                <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -590,22 +573,34 @@ export function RepairsScreen({
                       <View style={styles.footerActions}>
                         {(repair.status || "SUBMITTED") === "SUBMITTED" && (
                           <TouchableOpacity
-                            style={[styles.actionBtnOutline, isDark && { backgroundColor: "rgba(139,92,246,0.18)", borderColor: "rgba(139,92,246,0.35)" }]}
+                            style={[
+                              styles.actionBtnOutline,
+                              {
+                                backgroundColor: colors.purpleLight,
+                                borderColor: isDark ? "rgba(168,85,247,0.35)" : "#DDD6FE",
+                              },
+                            ]}
                             onPress={() => onUpdateStatus(repair.id, "IN_PROGRESS")}
                           >
-                            <Ionicons name="play-outline" size={14} color={COLORS.purple} />
-                            <Text style={[styles.actionBtnText, { color: COLORS.purple }]}>
+                            <Ionicons name="play-outline" size={14} color={colors.purple} />
+                            <Text style={[styles.actionBtnText, { color: colors.purple }]}>
                               Start Work
                             </Text>
                           </TouchableOpacity>
                         )}
                         {repair.status !== "RESOLVED" && (
                           <TouchableOpacity
-                            style={[styles.actionBtnGreen, isDark && { backgroundColor: "rgba(16,185,129,0.18)", borderColor: "rgba(16,185,129,0.35)" }]}
+                            style={[
+                              styles.actionBtnGreen,
+                              {
+                                backgroundColor: colors.successLight,
+                                borderColor: isDark ? "rgba(34,197,94,0.35)" : "#BBF7D0",
+                              },
+                            ]}
                             onPress={() => onUpdateStatus(repair.id, "RESOLVED")}
                           >
-                            <Ionicons name="checkmark-done-outline" size={14} color={COLORS.success} />
-                            <Text style={[styles.actionBtnText, { color: COLORS.success }]}>
+                            <Ionicons name="checkmark-done-outline" size={14} color={colors.success} />
+                            <Text style={[styles.actionBtnText, { color: colors.success }]}>
                               Resolve
                             </Text>
                           </TouchableOpacity>
@@ -616,12 +611,12 @@ export function RepairsScreen({
                         >
                           <Ionicons name="ellipsis-horizontal" size={16} color={colors.secondary} />
                         </TouchableOpacity>
-                        {onDeleteRepair ? (
+                        {!isRepairPerson && onDeleteRepair ? (
                           <TouchableOpacity
-                            style={[styles.cardDeleteBtn, isDark && { backgroundColor: "rgba(239,68,68,0.18)" }]}
+                            style={[styles.cardDeleteBtn, { backgroundColor: colors.dangerLight }]}
                             onPress={() => onDeleteRepair(repair.id, repair.title)}
                           >
-                            <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                            <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -770,31 +765,45 @@ export function RepairsScreen({
                     ) : null}
 
                     <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
-                      <TouchableOpacity
-                        onPress={() => onDeleteMaintenanceTask?.(task.id, task.title)}
-                        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
-                        <Text style={{ fontSize: 12, color: COLORS.danger, fontWeight: "600" }}>Remove</Text>
-                      </TouchableOpacity>
+                      {!isRepairPerson && onDeleteMaintenanceTask ? (
+                        <TouchableOpacity
+                          onPress={() => onDeleteMaintenanceTask?.(task.id, task.title)}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                        >
+                          <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
+                          <Text style={{ fontSize: 12, color: COLORS.danger, fontWeight: "600" }}>Remove</Text>
+                        </TouchableOpacity>
+                      ) : <View />}
 
                       <View style={styles.footerActions}>
                         {!isCompleted && !isInProgress && (
                           <TouchableOpacity
-                            style={[styles.actionBtnOutline, isDark && { backgroundColor: "rgba(139,92,246,0.18)", borderColor: "rgba(139,92,246,0.35)" }]}
+                            style={[
+                              styles.actionBtnOutline,
+                              {
+                                backgroundColor: colors.purpleLight,
+                                borderColor: isDark ? "rgba(168,85,247,0.35)" : "#DDD6FE",
+                              },
+                            ]}
                             onPress={() => onUpdateMaintenanceTaskStatus?.(task.id, "IN_PROGRESS")}
                           >
-                            <Ionicons name="play-outline" size={14} color={COLORS.purple} />
-                            <Text style={[styles.actionBtnText, { color: COLORS.purple }]}>Start</Text>
+                            <Ionicons name="play-outline" size={14} color={colors.purple} />
+                            <Text style={[styles.actionBtnText, { color: colors.purple }]}>Start</Text>
                           </TouchableOpacity>
                         )}
                         {!isCompleted && (
                           <TouchableOpacity
-                            style={[styles.actionBtnGreen, isDark && { backgroundColor: "rgba(16,185,129,0.18)", borderColor: "rgba(16,185,129,0.35)" }]}
+                            style={[
+                              styles.actionBtnGreen,
+                              {
+                                backgroundColor: colors.successLight,
+                                borderColor: isDark ? "rgba(34,197,94,0.35)" : "#BBF7D0",
+                              },
+                            ]}
                             onPress={() => onUpdateMaintenanceTaskStatus?.(task.id, "COMPLETED")}
                           >
-                            <Ionicons name="checkmark-done-outline" size={14} color={COLORS.success} />
-                            <Text style={[styles.actionBtnText, { color: COLORS.success }]}>Complete</Text>
+                            <Ionicons name="checkmark-done-outline" size={14} color={colors.success} />
+                            <Text style={[styles.actionBtnText, { color: colors.success }]}>Complete</Text>
                           </TouchableOpacity>
                         )}
                       </View>
@@ -818,13 +827,15 @@ export function RepairsScreen({
                   {repairPersons.length} technicians registered for this hostel
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.smallPrimaryButton}
-                onPress={() => setAddPersonVisible(true)}
-              >
-                <Ionicons name="person-add" size={17} color="#FFFFFF" />
-                <Text style={styles.smallPrimaryText}>Add Technician</Text>
-              </TouchableOpacity>
+              {!isRepairPerson && (
+                <TouchableOpacity
+                  style={styles.smallPrimaryButton}
+                  onPress={() => setAddPersonVisible(true)}
+                >
+                  <Ionicons name="person-add" size={17} color="#FFFFFF" />
+                  <Text style={styles.smallPrimaryText}>Add Technician</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {repairPersons.length === 0 ? (
@@ -837,25 +848,43 @@ export function RepairsScreen({
               repairPersons.map((p) => (
                 <View key={p.id} style={[styles.personCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={styles.personCardHeader}>
-                    <View style={[styles.personAvatar, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.primaryLight }]}>
-                      <Text style={styles.personAvatarText}>
+                    <View style={[styles.personAvatar, { backgroundColor: colors.surfaceSecondary }]}>
+                      <Text style={[styles.personAvatarText, { color: colors.primary }]}>
                         {(p.name || "T").charAt(0).toUpperCase()}
                       </Text>
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.personName, { color: colors.text }]}>{p.name}</Text>
                       <View style={[styles.specialtyBadge, { backgroundColor: colors.surfaceSecondary }]}>
-                        <Text style={[styles.specialtyText, { color: isDark ? "#60A5FA" : COLORS.primary }]}>
+                        <Text style={[styles.specialtyText, { color: colors.primary }]}>
                           {p.specialty || "General Maintenance"}
                         </Text>
                       </View>
                     </View>
-                    <TouchableOpacity
-                      onPress={() => onRemoveRepairPerson?.(p.id, p.name)}
-                      style={[styles.removeBtn, isDark && { backgroundColor: "rgba(239,68,68,0.18)" }]}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      {!isRepairPerson && onUpdateRepairPerson ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEditingPerson(p);
+                            setEditPersonName(p.name);
+                            setEditPersonPhone(p.phone);
+                            setEditPersonSpecialty(p.specialty || "General Maintenance");
+                            setEditPersonStatus(p.status === "INACTIVE" ? "INACTIVE" : "ACTIVE");
+                          }}
+                          style={[styles.editBtn, { backgroundColor: colors.surfaceSecondary }]}
+                        >
+                          <Ionicons name="pencil-outline" size={16} color={colors.primary} />
+                        </TouchableOpacity>
+                      ) : null}
+                      {!isRepairPerson && onRemoveRepairPerson ? (
+                        <TouchableOpacity
+                          onPress={() => onRemoveRepairPerson?.(p.id, p.name)}
+                          style={[styles.removeBtn, { backgroundColor: colors.dangerLight }]}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
                   </View>
 
                   <View style={[styles.personDetailsRow, { borderTopColor: colors.border }]}>
@@ -1280,6 +1309,161 @@ export function RepairsScreen({
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── Edit Technician Modal (Admin only) ── */}
+      <Modal visible={!!editingPerson} transparent animationType="slide">
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 18 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Technician</Text>
+                <TouchableOpacity onPress={() => setEditingPerson(null)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.modalSub, { color: colors.secondary }]}>Update technician profile and active status</Text>
+
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Full Name *</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
+                value={editPersonName}
+                onChangeText={setEditPersonName}
+                placeholder="Technician name"
+                placeholderTextColor={colors.secondary}
+              />
+
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Phone Number *</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
+                value={editPersonPhone}
+                onChangeText={setEditPersonPhone}
+                placeholder="Phone number"
+                placeholderTextColor={colors.secondary}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Specialty / Trade *</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
+                value={editPersonSpecialty}
+                onChangeText={setEditPersonSpecialty}
+                placeholder="e.g. Electrician, Plumber, Carpentry"
+                placeholderTextColor={colors.secondary}
+              />
+
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Status</Text>
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    editPersonStatus === "ACTIVE"
+                      ? { backgroundColor: colors.successLight, borderColor: colors.success, borderWidth: 1 }
+                      : { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1 },
+                    { paddingVertical: 10, borderRadius: 10, alignItems: "center" },
+                  ]}
+                  onPress={() => setEditPersonStatus("ACTIVE")}
+                >
+                  <Text style={{ fontWeight: "700", color: editPersonStatus === "ACTIVE" ? colors.success : colors.secondary, fontSize: 13 }}>
+                    Active
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    editPersonStatus === "INACTIVE"
+                      ? { backgroundColor: colors.dangerLight, borderColor: colors.danger, borderWidth: 1 }
+                      : { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1 },
+                    { paddingVertical: 10, borderRadius: 10, alignItems: "center" },
+                  ]}
+                  onPress={() => setEditPersonStatus("INACTIVE")}
+                >
+                  <Text style={{ fontWeight: "700", color: editPersonStatus === "INACTIVE" ? colors.danger : colors.secondary, fontSize: 13 }}>
+                    Inactive
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.cancelBtn, { borderColor: colors.border }]}
+                  onPress={() => setEditingPerson(null)}
+                >
+                  <Text style={[styles.cancelBtnText, { color: colors.secondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: colors.primary }, editPersonSaving && styles.btnDisabled]}
+                  onPress={async () => {
+                    if (!editingPerson) return;
+                    if (!editPersonName.trim() || !editPersonPhone.trim()) {
+                      Alert.alert("Missing Fields", "Name and phone number are required.");
+                      return;
+                    }
+                    setEditPersonSaving(true);
+                    try {
+                      await onUpdateRepairPerson?.(editingPerson.id, {
+                        name: editPersonName.trim(),
+                        phone: editPersonPhone.trim(),
+                        specialty: editPersonSpecialty.trim(),
+                        status: editPersonStatus,
+                      });
+                      setEditingPerson(null);
+                    } catch (err: any) {
+                      Alert.alert("Error", err?.message || "Failed to update technician");
+                    } finally {
+                      setEditPersonSaving(false);
+                    }
+                  }}
+                  disabled={editPersonSaving}
+                >
+                  {editPersonSaving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveBtnText}>Update Technician</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Info Modal ('i' icon) ── */}
+      <Modal visible={!!infoModalText} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setInfoModalText(null)}
+        >
+          <View style={[styles.infoModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="information-circle" size={22} color={colors.primary} />
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: "800", color: colors.text, flex: 1 }}>
+                {infoModalText?.title}
+              </Text>
+              <TouchableOpacity onPress={() => setInfoModalText(null)}>
+                <Ionicons name="close" size={20} color={colors.secondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 14, color: colors.secondary, lineHeight: 21 }}>
+              {infoModalText?.desc}
+            </Text>
+            <TouchableOpacity
+              style={[styles.smallPrimaryButton, { marginTop: 16, alignSelf: "flex-end" }]}
+              onPress={() => setInfoModalText(null)}
+            >
+              <Text style={styles.smallPrimaryText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1393,10 +1577,11 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     padding: 16,
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 5,
-    elevation: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   repairCardHeader: {
     flexDirection: "row",
@@ -1479,10 +1664,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   personCardHeader: {
     flexDirection: "row",
@@ -1645,6 +1831,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   menuIconContainer: {
     width: 44,
@@ -1665,6 +1856,11 @@ const styles = StyleSheet.create({
     padding: 13,
     borderRadius: 14,
     borderWidth: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   menuActionIconBox: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   menuActionTitle: { fontSize: 14, fontWeight: "700" },
@@ -1711,4 +1907,29 @@ const styles = StyleSheet.create({
   kpiLabel: { fontSize: 11, fontWeight: "600" },
   kpiValue: { fontSize: 20, fontWeight: "800", marginTop: 3 },
   kpiDivider: { width: 1, height: 34, marginHorizontal: 8 },
+  infoIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoModalCard: {
+    width: "88%",
+    maxWidth: 420,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  editBtn: {
+    padding: 8,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

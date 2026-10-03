@@ -196,7 +196,52 @@ router.get(
         return true;
       });
 
-      const notifications: NotificationItem[] = allDocs.map((doc) => {
+      // Automatic cleanup: Check if any repair notifications belong to resolved/deleted repairs
+      const repairNotifs = allDocs.filter(
+        (doc) =>
+          doc.data().entityType === "REPAIR" &&
+          doc.data().entityId,
+      );
+
+      const resolvedRepairIds = new Set<string>();
+      if (repairNotifs.length > 0) {
+        const repairIds = [
+          ...new Set(repairNotifs.map((d) => String(d.data().entityId))),
+        ];
+        await Promise.all(
+          repairIds.map(async (rId) => {
+            try {
+              const rDoc = await db.collection("repairs").doc(rId).get();
+              if (!rDoc.exists || String(rDoc.data()?.status).toUpperCase() === "RESOLVED") {
+                resolvedRepairIds.add(rId);
+              }
+            } catch {
+              // ignore
+            }
+          }),
+        );
+      }
+
+      // Filter out and delete notifications for resolved/deleted repairs
+      const activeDocs: typeof allDocs = [];
+      const staleDocsToDelete: typeof allDocs = [];
+
+      for (const doc of allDocs) {
+        const d = doc.data();
+        if (d.entityType === "REPAIR" && d.entityId && resolvedRepairIds.has(String(d.entityId))) {
+          staleDocsToDelete.push(doc);
+        } else {
+          activeDocs.push(doc);
+        }
+      }
+
+      if (staleDocsToDelete.length > 0) {
+        const batch = db.batch();
+        staleDocsToDelete.forEach((d) => batch.delete(d.ref));
+        batch.commit().catch(() => {});
+      }
+
+      const notifications: NotificationItem[] = activeDocs.map((doc) => {
         const data = doc.data();
 
         return {

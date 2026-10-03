@@ -26,6 +26,7 @@ if (!app) {
 export const firebaseAuth = getAuth(app);
 
 export const db = getFirestore(app);
+db.settings({ ignoreUndefinedProperties: true });
 
 const bucketName = env.FIREBASE_STORAGE_BUCKET || `${env.FIREBASE_PROJECT_ID}.appspot.com`;
 export const storage = getStorage(app).bucket(bucketName);

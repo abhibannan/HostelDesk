@@ -64,9 +64,22 @@ function emptyStats(
   };
 }
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+const dashboardStatsCache = new Map<string, CacheEntry<DashboardStats>>();
+const CACHE_TTL_MS = 3500; // 3.5s in-memory cache to absorb polling bursts
+
 async function calculateDashboard(
   hostelId?: string,
 ): Promise<DashboardStats> {
+  const cacheKey = hostelId || "__all__";
+  const cached = dashboardStatsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const stats = emptyStats(hostelId);
 
   let roomsQuery = db.collection("rooms");
@@ -252,6 +265,7 @@ async function calculateDashboard(
     }
   });
 
+  dashboardStatsCache.set(cacheKey, { data: stats, timestamp: Date.now() });
   return stats;
 }
 
@@ -367,19 +381,27 @@ router.get(
       // ADMIN
       // ---------------------------------------------------
 
-      const assignments = await db
-        .collection("hostelAdmins")
-        .where(
-          "adminId",
-          "==",
-          req.authUser!.id,
-        )
-        .get();
+      const [assignments, ownedSnapshots] = await Promise.all([
+        db
+          .collection("hostelAdmins")
+          .where("adminId", "==", req.authUser!.id)
+          .get(),
+        db
+          .collection("hostels")
+          .where("ownerId", "==", req.authUser!.id)
+          .get(),
+      ]);
 
-      const hostelIds =
-        assignments.docs.map(
-          (doc) => doc.id,
-        );
+      const hostelIdSet = new Set<string>();
+      assignments.docs.forEach((doc) => {
+        const id = String(doc.data().hostelId ?? doc.id);
+        if (id) hostelIdSet.add(id);
+      });
+      ownedSnapshots.docs.forEach((doc) => {
+        hostelIdSet.add(doc.id);
+      });
+
+      const hostelIds = Array.from(hostelIdSet);
 
       const hostelStats =
         await Promise.all(
@@ -507,20 +529,21 @@ router.get(
       if (
         req.authUser?.role === "ADMIN"
       ) {
-        const assignment = await db
-          .collection("hostelAdmins")
-          .doc(hostelId)
-          .get();
+        const isOwner = hostel.data()?.ownerId === req.authUser.id;
+        if (!isOwner) {
+          const assignmentSnapshot = await db
+            .collection("hostelAdmins")
+            .where("adminId", "==", req.authUser.id)
+            .where("hostelId", "==", hostelId)
+            .limit(1)
+            .get();
 
-        if (
-          !assignment.exists ||
-          assignment.data()?.adminId !==
-            req.authUser.id
-        ) {
-          res.status(403).json({
-            message: "Access denied",
-          });
-          return;
+          if (assignmentSnapshot.empty) {
+            res.status(403).json({
+              message: "Access denied",
+            });
+            return;
+          }
         }
       }
 

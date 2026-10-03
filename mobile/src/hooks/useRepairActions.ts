@@ -212,6 +212,26 @@ export function useRepairActions(cb: RepairActionsCallbacks) {
     );
   }
 
+  async function updateRepairPerson(
+    personId: string,
+    params: { name?: string; phone?: string; specialty?: string; status?: "ACTIVE" | "INACTIVE" }
+  ) {
+    if (!cb.selectedHostelId) return;
+    setPersonSaving(true);
+    try {
+      await cb.request(`/hostels/${cb.selectedHostelId}/repair-persons/${personId}`, {
+        method: "PATCH",
+        body: JSON.stringify(params),
+      });
+      await loadRepairPersons();
+      Alert.alert("Success", "Technician details updated successfully.");
+    } catch (err) {
+      Alert.alert("Unable to update technician", err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setPersonSaving(false);
+    }
+  }
+
   // Maintenance Tasks (Preventative Servicing)
   const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
   const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
@@ -337,6 +357,7 @@ export function useRepairActions(cb: RepairActionsCallbacks) {
     personSaving,
     loadRepairPersons,
     addRepairPerson,
+    updateRepairPerson,
     removeRepairPerson,
     // Maintenance
     maintenanceTasks,

@@ -7,6 +7,21 @@ import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
 
+interface CacheItem<T> {
+  data: T;
+  timestamp: number;
+}
+const roomsCache = new Map<string, CacheItem<any[]>>();
+const ROOMS_CACHE_TTL_MS = 5000;
+
+export function invalidateRoomsCache(hostelId?: string) {
+  if (hostelId) {
+    roomsCache.delete(hostelId);
+  } else {
+    roomsCache.clear();
+  }
+}
+
 const roomSchema = z.object({
   roomNumber: z.string().trim().min(1).max(50),
   floor: z.string().trim().max(50).optional(),
@@ -122,6 +137,12 @@ router.get(
         return;
       }
 
+      const cached = roomsCache.get(hostelId);
+      if (cached && Date.now() - cached.timestamp < ROOMS_CACHE_TTL_MS) {
+        res.json({ rooms: cached.data });
+        return;
+      }
+
       const snapshot = await db
         .collection("rooms")
         .where("hostelId", "==", hostelId)
@@ -146,6 +167,7 @@ router.get(
     a.roomNumber.localeCompare(b.roomNumber),
   );
 
+      roomsCache.set(hostelId, { data: rooms, timestamp: Date.now() });
       res.json({ rooms });
     } catch (error) {
       next(error);

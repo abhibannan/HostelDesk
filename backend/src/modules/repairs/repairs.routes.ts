@@ -7,6 +7,13 @@ import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
 
+const repairsCache = new Map<string, { repairs: any[]; expiresAt: number }>();
+export function clearRepairsCache(hostelId?: string | string[]) {
+  if (typeof hostelId === "string") repairsCache.delete(hostelId);
+  else if (Array.isArray(hostelId)) hostelId.forEach((id) => repairsCache.delete(id));
+  else repairsCache.clear();
+}
+
 const createRepairSchema = z.object({
   title: z.string().trim().min(2).max(150),
   description: z.string().trim().min(2).max(2000),
@@ -42,6 +49,13 @@ const createRepairPersonSchema = z.object({
   phone: z.string().trim().min(5).max(30),
   specialty: z.string().trim().min(2).max(100).optional().default("General Maintenance"),
   password: z.string().min(6).max(100).optional(),
+});
+
+const updateRepairPersonSchema = z.object({
+  name: z.string().trim().min(2).max(100).optional(),
+  phone: z.string().trim().min(5).max(30).optional(),
+  specialty: z.string().trim().min(2).max(100).optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
 // Create repair request
@@ -191,6 +205,7 @@ router.post(
         },
       });
 
+      clearRepairsCache(hostelId);
       res.status(201).json({
         message: "Repair request created successfully",
         repair,
@@ -217,6 +232,12 @@ router.get(
         return;
       }
 
+      const cached = repairsCache.get(hostelId);
+      if (cached && cached.expiresAt > Date.now()) {
+        res.json({ repairs: cached.repairs });
+        return;
+      }
+
       const snapshot = await db
         .collection("repairs")
         .where("hostelId", "==", hostelId)
@@ -226,6 +247,11 @@ router.get(
         id: doc.id,
         ...doc.data(),
       }));
+
+      repairsCache.set(hostelId, {
+        repairs,
+        expiresAt: Date.now() + 4000,
+      });
 
       res.json({ repairs });
     } catch (error) {
@@ -427,6 +453,21 @@ router.patch(
       if (parsed.data.status === "RESOLVED") {
         updateData.resolvedAt =
           new Date().toISOString();
+
+        // Automatically delete maintenance notifications for this repair so renter's feed is cleared
+        try {
+          const notifsSnap = await db
+            .collection("notifications")
+            .where("entityId", "==", repairId)
+            .get();
+          const batch = db.batch();
+          notifsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+          if (!notifsSnap.empty) {
+            await batch.commit();
+          }
+        } catch (notifErr) {
+          console.warn("Failed to auto-delete resolved repair notifications:", notifErr);
+        }
       }
 
       await repairRef.update(updateData);
@@ -478,6 +519,11 @@ router.delete(
         return;
       }
 
+      if (req.authUser?.role === "REPAIR_PERSON") {
+        res.status(403).json({ message: "Repair personnel are not permitted to delete repair tickets" });
+        return;
+      }
+
       const data = repairDoc.data();
       const isAdmin = req.authUser?.role === "ADMIN" || req.authUser?.role === "SUPER_ADMIN";
 
@@ -494,6 +540,21 @@ router.delete(
           res.status(403).json({ message: "Access denied" });
           return;
         }
+      }
+
+      // Automatically clean up any associated notifications
+      try {
+        const notifsSnap = await db
+          .collection("notifications")
+          .where("entityId", "==", repairId)
+          .get();
+        const batch = db.batch();
+        notifsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+        if (!notifsSnap.empty) {
+          await batch.commit();
+        }
+      } catch {
+        // non-fatal
       }
 
       await repairRef.delete();
@@ -685,6 +746,7 @@ router.post(
         },
       });
 
+      clearRepairsCache(hostelId);
       res.status(201).json({
         message: "Repair person added successfully",
         repairPerson: {
@@ -696,6 +758,76 @@ router.post(
           phone,
           specialty,
           status: "ACTIVE",
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Update repair person (Admin only)
+router.patch(
+  "/:hostelId/repair-persons/:personId",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      if (
+        req.authUser?.role !== "SUPER_ADMIN" &&
+        req.authUser?.role !== "ADMIN"
+      ) {
+        res.status(403).json({
+          message: "Only Admin can edit repair personnel",
+        });
+        return;
+      }
+
+      const hostelId = typeof req.params.hostelId === "string" ? req.params.hostelId : "";
+      const personId = typeof req.params.personId === "string" ? req.params.personId : "";
+      if (!hostelId || !personId) {
+        res.status(400).json({ message: "Invalid parameters" });
+        return;
+      }
+
+      const rpRef = db.collection("repairPersons").doc(personId);
+      const rpDoc = await rpRef.get();
+
+      if (!rpDoc.exists || rpDoc.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Repair person not found" });
+        return;
+      }
+
+      const parsed = updateRepairPersonSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: "Invalid data",
+          errors: parsed.error.flatten(),
+        });
+        return;
+      }
+
+      const updates: Record<string, any> = {
+        ...parsed.data,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await rpRef.update(updates);
+      const updatedDoc = await rpRef.get();
+
+      await writeAuditLog({
+        actorId: req.authUser.id,
+        action: "UPDATE_REPAIR_PERSON",
+        entityType: "REPAIR_PERSON",
+        entityId: personId,
+        metadata: { updates },
+      });
+
+      res.json({
+        message: "Technician updated successfully",
+        repairPerson: {
+          id: personId,
+          ...updatedDoc.data(),
         },
       });
     } catch (error) {
@@ -867,6 +999,7 @@ router.post(
         metadata: { hostelId, title: parsed.data.title },
       });
 
+      clearRepairsCache(hostelId);
       res.status(201).json({
         message: "Maintenance task scheduled successfully",
         maintenanceTask: taskData,

@@ -9,6 +9,13 @@ import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
 
+const feesCache = new Map<string, { fees: any[]; expiresAt: number }>();
+export function clearFeesCache(hostelId?: string | string[]) {
+  if (typeof hostelId === "string") feesCache.delete(hostelId);
+  else if (Array.isArray(hostelId)) hostelId.forEach((id) => feesCache.delete(id));
+  else feesCache.clear();
+}
+
 const createFeeSchema = z.object({
   renterId: z.string().min(1),
   month: z.string().regex(/^\d{4}-\d{2}$/),
@@ -152,6 +159,7 @@ router.post(
         },
       });
 
+      clearFeesCache(hostelId);
       res.status(201).json({
         message: "Fee created successfully",
         fee,
@@ -275,6 +283,7 @@ router.post(
         });
       }
 
+      clearFeesCache(hostelId);
       res.status(201).json({
         message: `Generated ${generatedCount} fee record${generatedCount === 1 ? '' : 's'} (${skippedCount} already existed or skipped)`,
         generatedCount,
@@ -361,6 +370,12 @@ router.get(
         return;
       }
 
+      const cached = feesCache.get(hostelId);
+      if (cached && cached.expiresAt > Date.now()) {
+        res.json({ fees: cached.fees });
+        return;
+      }
+
       const snapshot = await db
         .collection("fees")
         .where("hostelId", "==", hostelId)
@@ -370,6 +385,11 @@ router.get(
         id: doc.id,
         ...doc.data(),
       }));
+
+      feesCache.set(hostelId, {
+        fees,
+        expiresAt: Date.now() + 4000,
+      });
 
       res.json({ fees });
     } catch (error) {
@@ -680,6 +700,7 @@ router.post(
         },
       });
 
+      clearFeesCache(hostelId);
       res.status(201).json({
         message: "Payment recorded successfully",
         payment,

@@ -30,7 +30,6 @@ interface MoreScreenProps {
 function MoreRow({
   icon,
   title,
-  subtitle,
   badge,
   onPress,
   danger = false,
@@ -38,7 +37,6 @@ function MoreRow({
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  subtitle: string;
   badge?: number;
   onPress: () => void;
   danger?: boolean;
@@ -66,7 +64,6 @@ function MoreRow({
         <Text style={[styles.moreTitle, { color: danger ? colors.danger : colors.text }]}>
           {title}
         </Text>
-        <Text style={[styles.moreSubtitle, { color: colors.secondary }]}>{subtitle}</Text>
       </View>
       {badge !== undefined && badge > 0 ? (
         <View style={[styles.badge, { backgroundColor: colors.danger }]}>
@@ -141,21 +138,18 @@ export function MoreScreen({
       <MoreRow
         icon="wallet-outline"
         title="Payments & Invoicing"
-        subtitle="Manage fees, verify payment receipts, and send reminders"
         onPress={onNavigateToPayments}
         colors={colors}
       />
       <MoreRow
         icon="construct-outline"
         title="Maintenance & Repairs"
-        subtitle="Track complaints, update status and warden notes"
         onPress={onNavigateToRepairs}
         colors={colors}
       />
       <MoreRow
         icon="notifications-outline"
         title="Broadcasts & Announcements"
-        subtitle="Send announcements, alerts and notices to residents"
         onPress={onNavigateToNotifications}
         colors={colors}
       />
@@ -182,9 +176,6 @@ export function MoreScreen({
           <Text style={[styles.moreTitle, { color: colors.text }]}>
             {isDark ? "Dark Mode" : "Light Mode"}
           </Text>
-          <Text style={[styles.moreSubtitle, { color: colors.secondary }]}>
-            {isDark ? "Switch to light theme" : "Switch to dark theme"}
-          </Text>
         </View>
         <Switch
           value={isDark}
@@ -202,7 +193,6 @@ export function MoreScreen({
       <MoreRow
         icon="log-out-outline"
         title="Logout"
-        subtitle="Sign out from StayNexa"
         danger
         onPress={handleLogout}
         colors={colors}
@@ -222,9 +212,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 18,
+    borderWidth: 1,
     padding: 16,
     marginBottom: 22,
     gap: 14,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   profileAvatar: {
     width: 52,
@@ -274,11 +270,16 @@ const styles = StyleSheet.create({
   // Row
   moreRow: {
     borderWidth: 1,
-    borderRadius: 17,
+    borderRadius: 18,
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 11,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   themeRow: {
     paddingVertical: 12,

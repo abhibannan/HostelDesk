@@ -89,7 +89,7 @@ function roomStatusColor(
   const max = Number(room.maxOccupants) || 2;
   const status = String(room.status ?? "ACTIVE").toUpperCase();
   if (status === "INACTIVE") {
-    return { bg: colors.grayFill, fg: colors.secondary, label: "Inactive" };
+    return { bg: colors.surfaceSecondary, fg: colors.secondary, label: "Inactive" };
   }
   if (occupantCount >= max && max > 0) {
     return { bg: colors.dangerLight, fg: colors.danger, label: "Full" };
@@ -152,6 +152,50 @@ export function RoomsScreen({
     return map;
   }, [renters]);
 
+  // ── Combine backend occupants with local renters list for instant display ───
+  const currentRoomOccupants = React.useMemo(() => {
+    if (!selectedRoom) return [];
+    const matchingRenters = renters.filter(
+      (r) =>
+        r.roomId === selectedRoom.id &&
+        String(r.status ?? "ACTIVE").toUpperCase() === "ACTIVE"
+    );
+
+    const occupantIds = new Set(occupants.map((o) => o.id));
+    const combined: Occupant[] = [...occupants];
+
+    matchingRenters.forEach((r) => {
+      if (!occupantIds.has(r.id)) {
+        combined.push({
+          id: r.id,
+          userId: r.userId,
+          status: r.status,
+          joiningDate: r.joiningDate,
+          monthlyFee: r.monthlyFee,
+          securityDeposit: r.securityDeposit,
+          guardianName: r.guardianName,
+          guardianPhone: r.guardianPhone,
+          user: {
+            firstName:
+              r.user?.firstName ||
+              (r as any).name?.split(" ")[0] ||
+              r.fullName?.split(" ")[0] ||
+              "Resident",
+            lastName:
+              r.user?.lastName ||
+              (r as any).name?.split(" ").slice(1).join(" ") ||
+              r.fullName?.split(" ").slice(1).join(" ") ||
+              "",
+            email: r.user?.email || r.email || "No email",
+            phone: r.user?.phone || r.phone || "",
+          },
+        });
+      }
+    });
+
+    return combined;
+  }, [selectedRoom, renters, occupants]);
+
   // ── Fetch occupants for a room ─────────────────────────────────────────────
   const loadOccupants = useCallback(
     async (room: Room) => {
@@ -160,9 +204,11 @@ export function RoomsScreen({
         const res = await request<{ occupants: Occupant[] }>(
           `/hostels/${selectedHostelId}/rooms/${room.id}/occupants`
         );
-        setOccupants(res?.occupants ?? []);
+        if (res?.occupants && Array.isArray(res.occupants) && res.occupants.length > 0) {
+          setOccupants(res.occupants);
+        }
       } catch {
-        setOccupants([]);
+        // Fallback to local renters already active in currentRoomOccupants
       } finally {
         setOccupantsLoading(false);
       }
@@ -172,8 +218,7 @@ export function RoomsScreen({
 
   function openRoomDetail(room: Room) {
     setSelectedRoom(room);
-    setLocalMaxOccupants(room.maxOccupants ?? 1);
-    setOccupants([]);
+    setLocalMaxOccupants(room.maxOccupants ?? 2);
     setTransferOccupant(null);
     setTransferTargetId("");
     setDetailVisible(true);
@@ -265,17 +310,17 @@ export function RoomsScreen({
         <View style={styles.statsBar}>
           <View style={[styles.statChip, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
             <Ionicons name="grid-outline" size={15} color={colors.primary} />
-            <Text style={[styles.statChipText, { color: colors.primary }]}>
+            <Text style={[styles.statChipText, { color: colors.text }]}>
               {rooms.length} Rooms
             </Text>
           </View>
-          <View style={[styles.statChip, { backgroundColor: colors.successLight, borderColor: isDark ? colors.border : "transparent", borderWidth: 1 }]}>
+          <View style={[styles.statChip, { backgroundColor: colors.successLight, borderColor: isDark ? "rgba(34,197,94,0.3)" : "#BBF7D0", borderWidth: 1 }]}>
             <Ionicons name="bed-outline" size={15} color={colors.success} />
             <Text style={[styles.statChipText, { color: colors.success }]}>
               {availableBeds} Beds Open
             </Text>
           </View>
-          <View style={[styles.statChip, { backgroundColor: colors.warningLight, borderColor: isDark ? colors.border : "transparent", borderWidth: 1 }]}>
+          <View style={[styles.statChip, { backgroundColor: colors.warningLight, borderColor: isDark ? "rgba(245,158,11,0.3)" : "#FED7AA", borderWidth: 1 }]}>
             <Ionicons name="people-outline" size={15} color={colors.warning} />
             <Text style={[styles.statChipText, { color: colors.warning }]}>
               {totalOccupants}/{totalBeds} Occupied
@@ -314,23 +359,35 @@ export function RoomsScreen({
                   onPress={() => openRoomDetail(room)}
                   activeOpacity={0.78}
                 >
-                  {/* Header strip */}
-                  <View style={[styles.roomCardStrip, { backgroundColor: statusInfo.bg }]}>
-                    <Ionicons name="home" size={18} color={statusInfo.fg} />
-                    <View style={[styles.statusDot, { backgroundColor: statusInfo.fg }]} />
+                  {/* Top row: Icon container + Delete button */}
+                  <View style={styles.roomCardHeader}>
+                    <View style={[styles.roomIconBox, { backgroundColor: statusInfo.bg }]}>
+                      <Ionicons name="bed-outline" size={18} color={statusInfo.fg} />
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        onDeleteRoom(room);
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={14} color={colors.danger} />
+                    </TouchableOpacity>
                   </View>
 
+                  {/* Body: Room Number & Floor */}
                   <View style={styles.roomCardBody}>
                     <Text style={[styles.roomNumber, { color: colors.text }]}>Room {room.roomNumber}</Text>
                     <Text style={[styles.roomFloor, { color: colors.secondary }]}>
                       {room.floor !== undefined && room.floor !== null
                         ? `Floor ${room.floor}`
-                        : "No floor"}
+                        : "Ground Floor"}
                     </Text>
 
-                    {/* Occupancy bar */}
+                    {/* Occupancy Progress Bar */}
                     {max > 0 && (
-                      <View style={[styles.occupancyBarBg, { backgroundColor: colors.grayFill }]}>
+                      <View style={[styles.occupancyBarBg, { backgroundColor: colors.surfaceSecondary }]}>
                         <View
                           style={[
                             styles.occupancyBarFill,
@@ -343,10 +400,10 @@ export function RoomsScreen({
                       </View>
                     )}
 
+                    {/* Footer: Count & Status Badge */}
                     <View style={styles.roomCardFooter}>
-                      <Text style={[styles.occupantCount, { color: statusInfo.fg }]}>
-                        {count}
-                        {max > 0 ? `/${max}` : ""} {count === 1 ? "occupant" : "occupants"}
+                      <Text style={[styles.occupantCount, { color: colors.secondary }]}>
+                        {count}{max > 0 ? `/${max}` : ""} {count === 1 ? "bed" : "beds"}
                       </Text>
                       <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
                         <Text style={[styles.statusBadgeText, { color: statusInfo.fg }]}>
@@ -355,15 +412,6 @@ export function RoomsScreen({
                       </View>
                     </View>
                   </View>
-
-                  {/* Delete button */}
-                  <TouchableOpacity
-                    style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
-                    onPress={() => onDeleteRoom(room)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="trash-outline" size={15} color={colors.danger} />
-                  </TouchableOpacity>
                 </TouchableOpacity>
               );
             })}
@@ -390,10 +438,10 @@ export function RoomsScreen({
                   <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>{selectedHostel?.name || "Selected hostel"}</Text>
                 </View>
                 <TouchableOpacity
-                  style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
+                  style={[styles.closeButton, { backgroundColor: colors.surfaceSecondary }]}
                   onPress={() => setShowRoomModal(false)}
                 >
-                  <Ionicons name="close" size={22} color={colors.secondary} />
+                  <Ionicons name="close" size={20} color={colors.secondary} />
                 </TouchableOpacity>
               </View>
 
@@ -457,7 +505,7 @@ export function RoomsScreen({
               </View>
 
               <TouchableOpacity
-                style={[styles.primaryButton, roomSaving && { opacity: 0.6 }]}
+                style={[styles.primaryButton, { backgroundColor: colors.primary }, roomSaving && { opacity: 0.6 }]}
                 disabled={roomSaving}
                 onPress={onAddRoom}
               >
@@ -475,342 +523,403 @@ export function RoomsScreen({
         </View>
       </Modal>
 
-      {/* ── Room detail bottom-sheet ─────────────────────────────────────────── */}
+      {/* ── Room detail modal ─────────────────────────────────────────── */}
       <Modal
         visible={detailVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setDetailVisible(false)}
       >
-        <View style={styles.detailBackdrop}>
+        <View style={styles.modalBackdrop}>
           <TouchableOpacity
-            style={styles.detailDismissArea}
+            style={styles.modalDismissArea}
             activeOpacity={1}
             onPress={() => setDetailVisible(false)}
           />
-          <View style={[styles.detailSheet, { backgroundColor: colors.card, borderTopColor: colors.border, borderWidth: 1 }]}>
-            {/* Handle */}
-            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
-
-            {/* Header */}
-            <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-              <View>
-                <Text style={[styles.detailTitle, { color: colors.text }]}>
-                  Room {selectedRoom?.roomNumber}
-                </Text>
-                <Text style={[styles.detailSubtitle, { color: colors.secondary }]}>
-                  {selectedRoom?.floor !== undefined && selectedRoom.floor !== null
-                    ? `Floor ${selectedRoom.floor}`
-                    : "No floor set"}{" "}
-                  •{" "}
-                  {selectedRoom
-                    ? (() => {
-                        const c = occupantCountMap[selectedRoom.id] ?? 0;
-                        const m = localMaxOccupants;
-                        return `${c}/${m} occupants`;
-                      })()
-                    : ""}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
-                onPress={() => setDetailVisible(false)}
-              >
-                <Ionicons name="close" size={20} color={colors.secondary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.detailContent}
-              showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={handleDetailRefresh} />
-              }
+          <KeyboardAvoidingView
+            style={styles.modalKeyboard}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View
+              style={[
+                styles.modalCardLarge,
+                { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+              ]}
             >
-              {/* ── Capacity control ─────────────────────────────────────── */}
-              <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <View style={styles.sectionBoxHeader}>
-                  <Ionicons name="people-outline" size={16} color={colors.primary} />
-                  <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Maximum Capacity</Text>
-                  {capacitySaving && (
-                    <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 6 }} />
-                  )}
-                </View>
-                <View style={styles.capacityRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.capacityBtn,
-                      { backgroundColor: colors.grayFill, borderColor: colors.border },
-                      localMaxOccupants <= 1 && styles.capacityBtnDisabled,
-                    ]}
-                    onPress={() => adjustCapacity(-1)}
-                    disabled={localMaxOccupants <= 1 || capacitySaving}
-                  >
-                    <Ionicons
-                      name="remove"
-                      size={20}
-                      color={localMaxOccupants <= 1 ? colors.secondary : colors.text}
-                    />
-                  </TouchableOpacity>
-                  <View style={styles.capacityValueBox}>
-                    <Text style={[styles.capacityValue, { color: colors.text }]}>{localMaxOccupants}</Text>
-                    <Text style={[styles.capacityLabel, { color: colors.secondary }]}>max occupants</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.capacityBtn, { backgroundColor: colors.grayFill, borderColor: colors.border }]}
-                    onPress={() => adjustCapacity(1)}
-                    disabled={capacitySaving}
-                  >
-                    <Ionicons name="add" size={20} color={colors.text} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Visual fill bar */}
-                <View style={[styles.capacityBarBg, { backgroundColor: colors.grayFill }]}>
-                  <View
-                    style={[
-                      styles.capacityBarFill,
-                      {
-                        width:
-                          localMaxOccupants > 0
-                            ? `${Math.min(
-                                ((occupantCountMap[selectedRoom?.id ?? ""] ?? 0) /
-                                  localMaxOccupants) *
-                                  100,
-                                100
-                              )}%`
-                            : "0%",
-                        backgroundColor:
-                          (occupantCountMap[selectedRoom?.id ?? ""] ?? 0) >= localMaxOccupants
-                            ? colors.danger
-                            : colors.primary,
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={[styles.capacityHint, { color: colors.secondary }]}>
-                  {occupantCountMap[selectedRoom?.id ?? ""] ?? 0} of {localMaxOccupants} slots used
-                </Text>
+              {/* Top Drag Indicator */}
+              <View style={styles.modalDragPillWrap}>
+                <View style={[styles.modalDragPill, { backgroundColor: colors.border }]} />
               </View>
 
-              {/* ── Room description ─────────────────────────────────────── */}
-              {(selectedRoom?.description || selectedRoom?.amenities) && (
-                <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                  <View style={styles.sectionBoxHeader}>
-                    <Ionicons name="information-circle-outline" size={16} color={colors.purple} />
-                    <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Room Details</Text>
-                  </View>
-                  {selectedRoom.description ? (
-                    <Text style={[{ fontSize: 13, color: colors.secondary, lineHeight: 20, marginBottom: 6 }]}>
-                      {selectedRoom.description}
+              {/* Header */}
+              <View style={[styles.modalHeader, { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 16, marginBottom: 16 }]}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Text style={[styles.modalTitle, { color: colors.text }]}>
+                      Room {selectedRoom?.roomNumber}
                     </Text>
-                  ) : null}
-                  {selectedRoom.amenities ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                      {selectedRoom.amenities.split(",").map((a, i) => (
-                        <View key={i} style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                          <Text style={{ fontSize: 11, fontWeight: "600", color: colors.primary }}>{a.trim()}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              )}
-
-              {/* ── Occupants list ────────────────────────────────────────── */}
-
-              <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <View style={styles.sectionBoxHeader}>
-                  <Ionicons name="person-outline" size={16} color={colors.purple} />
-                  <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Current Occupants</Text>
-                </View>
-
-                {occupantsLoading ? (
-                  <View style={styles.occupantsLoader}>
-                    <ActivityIndicator color={colors.primary} />
-                    <Text style={[styles.occupantsLoaderText, { color: colors.secondary }]}>Loading occupants…</Text>
-                  </View>
-                ) : occupants.length === 0 ? (
-                  <View style={styles.emptyOccupants}>
-                    <Ionicons name="home-outline" size={30} color={colors.border} />
-                    <Text style={[styles.emptyOccupantsText, { color: colors.secondary }]}>No active occupants</Text>
-                  </View>
-                ) : (
-                  occupants.map((occ, idx) => (
-                    <View
-                      key={occ.id}
-                      style={[
-                        styles.occupantRow,
-                        idx < occupants.length - 1 && [styles.occupantRowBorder, { borderBottomColor: colors.border }],
-                      ]}
-                    >
-                      <View style={[styles.occupantAvatar, { backgroundColor: colors.primaryLight }]}>
-                        <Text style={[styles.occupantAvatarText, { color: colors.primary }]}>
-                          {(occ.user?.firstName?.[0] || occ.user?.email?.[0] || "?").toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.occupantName, { color: colors.text }]}>{getOccupantName(occ)}</Text>
-                        <Text style={[styles.occupantMeta, { color: colors.secondary }]}>
-                          {occ.user?.email || "No email"} • Joined {occ.joiningDate ?? "–"}
-                        </Text>
-                        {occ.monthlyFee !== null && occ.monthlyFee !== undefined && (
-                          <Text style={[styles.occupantFee, { color: colors.success }]}>
-                            ₹{Number(occ.monthlyFee).toLocaleString()}/mo
-                          </Text>
-                        )}
-                      </View>
-                      {/* Transfer button */}
-                      <TouchableOpacity
-                        style={[styles.transferBtn, { backgroundColor: colors.primaryLight }]}
-                        onPress={() => {
-                          setTransferOccupant(occ);
-                          setTransferTargetId("");
-                          setShowTransferPicker(true);
-                        }}
+                    {selectedRoom && (
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          {
+                            backgroundColor: roomStatusColor(
+                              selectedRoom,
+                              currentRoomOccupants.length,
+                              colors
+                            ).bg,
+                          },
+                        ]}
                       >
-                        <Ionicons name="swap-horizontal-outline" size={16} color={colors.primary} />
-                        <Text style={[styles.transferBtnText, { color: colors.primary }]}>Move</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </View>
-
-              {/* ── Transfer picker modal ─────────────────────────────────── */}
-              {showTransferPicker && transferOccupant && (
-                <View style={[styles.transferPanel, { backgroundColor: isDark ? colors.surfaceSecondary : colors.primaryLight, borderColor: colors.primary }]}>
-                  <View style={styles.transferPanelHeader}>
-                    <Ionicons name="swap-horizontal" size={16} color={colors.primary} />
-                    <Text style={[styles.transferPanelTitle, { color: colors.primary }]}>
-                      Move {getOccupantName(transferOccupant)}
-                    </Text>
-                    <TouchableOpacity onPress={() => setShowTransferPicker(false)}>
-                      <Ionicons name="close-circle" size={20} color={colors.secondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={[styles.transferPanelSub, { color: colors.secondary }]}>Select destination room:</Text>
-
-                  <ScrollView
-                    style={styles.roomPickerList}
-                    nestedScrollEnabled
-                    showsVerticalScrollIndicator={false}
-                  >
-                    {transferableRooms.map((r) => {
-                      const cnt = occupantCountMap[r.id] ?? 0;
-                      const max = r.maxOccupants ?? 0;
-                      const isFull = max > 0 && cnt >= max;
-                      const isSelected = transferTargetId === r.id;
-                      return (
-                        <TouchableOpacity
-                          key={r.id}
+                        <Text
                           style={[
-                            styles.roomPickerItem,
-                            { backgroundColor: colors.card, borderColor: colors.border },
-                            isSelected && [styles.roomPickerItemSelected, { borderColor: colors.primary, backgroundColor: isDark ? "#1E2A4A" : "#EFF6FF" }],
-                            isFull && styles.roomPickerItemFull,
+                            styles.statusBadgeText,
+                            {
+                              color: roomStatusColor(
+                                selectedRoom,
+                                currentRoomOccupants.length,
+                                colors
+                              ).fg,
+                            },
                           ]}
-                          onPress={() => !isFull && setTransferTargetId(r.id)}
-                          disabled={isFull}
                         >
-                          <Ionicons
-                            name="home-outline"
-                            size={16}
-                            color={
-                              isFull
-                                ? colors.secondary
-                                : isSelected
-                                ? colors.primary
-                                : colors.text
-                            }
-                          />
-                          <Text
-                            style={[
-                              styles.roomPickerItemText,
-                              { color: colors.text },
-                              isSelected && { color: colors.primary, fontWeight: "800" },
-                              isFull && { color: colors.secondary },
-                            ]}
-                          >
-                            Room {r.roomNumber}
-                            {r.floor !== null && r.floor !== undefined
-                              ? ` (F${r.floor})`
-                              : ""}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.roomPickerOccupancy,
-                              { color: colors.secondary },
-                              isFull && { color: colors.danger },
-                            ]}
-                          >
-                            {cnt}
-                            {max > 0 ? `/${max}` : ""}{" "}
-                            {isFull ? "• Full" : ""}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.transferConfirmBtn,
-                      { backgroundColor: colors.primary },
-                      (!transferTargetId || transferSaving) && { opacity: 0.5 },
-                    ]}
-                    disabled={!transferTargetId || transferSaving}
-                    onPress={doTransfer}
-                  >
-                    {transferSaving ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" />
-                        <Text style={styles.transferConfirmText}>Confirm Transfer</Text>
-                      </>
+                          {roomStatusColor(
+                            selectedRoom,
+                            currentRoomOccupants.length,
+                            colors
+                          ).label}
+                        </Text>
+                      </View>
                     )}
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* ── Room info / delete ────────────────────────────────────── */}
-              <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <View style={styles.sectionBoxHeader}>
-                  <Ionicons name="information-circle-outline" size={16} color={colors.warning} />
-                  <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Room Info</Text>
-                </View>
-                <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.infoKey, { color: colors.secondary }]}>Room Number</Text>
-                  <Text style={[styles.infoVal, { color: colors.text }]}>{selectedRoom?.roomNumber}</Text>
-                </View>
-                <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.infoKey, { color: colors.secondary }]}>Floor</Text>
-                  <Text style={[styles.infoVal, { color: colors.text }]}>
+                  </View>
+                  <Text style={[styles.modalSubtitle, { color: colors.secondary, marginTop: 4 }]}>
                     {selectedRoom?.floor !== undefined && selectedRoom.floor !== null
                       ? `Floor ${selectedRoom.floor}`
-                      : "—"}
+                      : "Ground Floor"}{" "}
+                    • {currentRoomOccupants.length}/{localMaxOccupants} occupants
                   </Text>
                 </View>
-                <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.infoKey, { color: colors.secondary }]}>Status</Text>
-                  <Text style={[styles.infoVal, { color: colors.text }]}>{selectedRoom?.status ?? "ACTIVE"}</Text>
-                </View>
-
                 <TouchableOpacity
-                  style={[styles.deleteRoomBtn, { backgroundColor: colors.dangerLight }]}
-                  onPress={() => {
-                    setDetailVisible(false);
-                    setTimeout(() => selectedRoom && onDeleteRoom(selectedRoom), 300);
-                  }}
+                  style={[styles.closeButton, { backgroundColor: colors.surfaceSecondary }]}
+                  onPress={() => setDetailVisible(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                  <Text style={[styles.deleteRoomBtnText, { color: colors.danger }]}>Delete Room</Text>
+                  <Ionicons name="close" size={20} color={colors.secondary} />
                 </TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ gap: 16, paddingBottom: 32 }}
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={handleDetailRefresh} />
+                }
+              >
+
+                {/* ── Capacity control ─────────────────────────────────────── */}
+                <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                  <View style={styles.sectionBoxHeader}>
+                    <Ionicons name="people-outline" size={16} color={colors.primary} />
+                    <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Maximum Capacity</Text>
+                    {capacitySaving && (
+                      <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 6 }} />
+                    )}
+                  </View>
+                  <View style={styles.capacityRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.capacityBtn,
+                        { backgroundColor: colors.card, borderColor: colors.border },
+                        localMaxOccupants <= 1 && styles.capacityBtnDisabled,
+                      ]}
+                      onPress={() => adjustCapacity(-1)}
+                      disabled={localMaxOccupants <= 1 || capacitySaving}
+                    >
+                      <Ionicons
+                        name="remove"
+                        size={20}
+                        color={localMaxOccupants <= 1 ? colors.secondary : colors.text}
+                      />
+                    </TouchableOpacity>
+                    <View style={styles.capacityValueBox}>
+                      <Text style={[styles.capacityValue, { color: colors.text }]}>{localMaxOccupants}</Text>
+                      <Text style={[styles.capacityLabel, { color: colors.secondary }]}>max occupants</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.capacityBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                      onPress={() => adjustCapacity(1)}
+                      disabled={capacitySaving}
+                    >
+                      <Ionicons name="add" size={20} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Visual fill bar */}
+                  <View style={[styles.capacityBarBg, { backgroundColor: colors.card }]}>
+                    <View
+                      style={[
+                        styles.capacityBarFill,
+                        {
+                          width:
+                            localMaxOccupants > 0
+                              ? `${Math.min(
+                                  (currentRoomOccupants.length / localMaxOccupants) * 100,
+                                  100
+                                )}%`
+                              : "0%",
+                          backgroundColor:
+                            currentRoomOccupants.length >= localMaxOccupants
+                              ? colors.danger
+                              : colors.primary,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.capacityHint, { color: colors.secondary }]}>
+                    {currentRoomOccupants.length} of {localMaxOccupants} slots used
+                  </Text>
+                </View>
+
+                {/* ── Room description ─────────────────────────────────────── */}
+                {(selectedRoom?.description || selectedRoom?.amenities) && (
+                  <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                    <View style={styles.sectionBoxHeader}>
+                      <Ionicons name="information-circle-outline" size={16} color={colors.purple} />
+                      <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Room Details</Text>
+                    </View>
+                    {selectedRoom.description ? (
+                      <Text style={[{ fontSize: 13, color: colors.secondary, lineHeight: 20, marginBottom: 6 }]}>
+                        {selectedRoom.description}
+                      </Text>
+                    ) : null}
+                    {selectedRoom.amenities ? (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                        {selectedRoom.amenities.split(",").map((a, i) => (
+                          <View key={i} style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                            <Text style={{ fontSize: 11, fontWeight: "600", color: colors.primary }}>{a.trim()}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                )}
+
+                {/* ── Occupants list ────────────────────────────────────────── */}
+                <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                  <View style={styles.sectionBoxHeader}>
+                    <Ionicons name="person-outline" size={16} color={colors.purple} />
+                    <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>
+                      Current Occupants ({currentRoomOccupants.length})
+                    </Text>
+                  </View>
+
+                  {occupantsLoading && currentRoomOccupants.length === 0 ? (
+                    <View style={styles.occupantsLoader}>
+                      <ActivityIndicator color={colors.primary} />
+                      <Text style={[styles.occupantsLoaderText, { color: colors.secondary }]}>Loading occupants…</Text>
+                    </View>
+                  ) : currentRoomOccupants.length === 0 ? (
+                    <View style={styles.emptyOccupants}>
+                      <Ionicons name="home-outline" size={30} color={colors.border} />
+                      <Text style={[styles.emptyOccupantsText, { color: colors.secondary }]}>No active occupants in this room</Text>
+                    </View>
+                  ) : (
+                    currentRoomOccupants.map((occ, idx) => (
+                      <View
+                        key={occ.id}
+                        style={[
+                          styles.occupantRow,
+                          idx < currentRoomOccupants.length - 1 && [styles.occupantRowBorder, { borderBottomColor: colors.border }],
+                        ]}
+                      >
+                        <View style={[styles.occupantAvatar, { backgroundColor: colors.primaryLight }]}>
+                          <Text style={[styles.occupantAvatarText, { color: colors.primary }]}>
+                            {(occ.user?.firstName?.[0] || occ.user?.email?.[0] || "?").toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.occupantName, { color: colors.text }]}>{getOccupantName(occ)}</Text>
+                          <Text style={[styles.occupantMeta, { color: colors.secondary }]}>
+                            {occ.user?.phone || occ.user?.email || "No contact info"} • Joined {occ.joiningDate ?? "–"}
+                          </Text>
+                          {occ.monthlyFee !== null && occ.monthlyFee !== undefined && (
+                            <Text style={[styles.occupantFee, { color: colors.success }]}>
+                              ₹{Number(occ.monthlyFee).toLocaleString()}/mo
+                            </Text>
+                          )}
+                        </View>
+                        {/* Transfer button */}
+                        <TouchableOpacity
+                          style={[styles.transferBtn, { backgroundColor: colors.primaryLight }]}
+                          onPress={() => {
+                            setTransferOccupant(occ);
+                            setTransferTargetId("");
+                            setShowTransferPicker(true);
+                          }}
+                        >
+                          <Ionicons name="swap-horizontal-outline" size={16} color={colors.primary} />
+                          <Text style={[styles.transferBtnText, { color: colors.primary }]}>Move</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  )}
+                </View>
+
+                {/* ── Transfer picker panel ─────────────────────────────────── */}
+                {showTransferPicker && transferOccupant && (
+                  <View style={[styles.transferPanel, { backgroundColor: isDark ? colors.surfaceSecondary : colors.primaryLight, borderColor: colors.primary }]}>
+                    <View style={styles.transferPanelHeader}>
+                      <Ionicons name="swap-horizontal" size={16} color={colors.primary} />
+                      <Text style={[styles.transferPanelTitle, { color: colors.primary }]}>
+                        Move {getOccupantName(transferOccupant)}
+                      </Text>
+                      <TouchableOpacity onPress={() => setShowTransferPicker(false)}>
+                        <Ionicons name="close-circle" size={20} color={colors.secondary} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={[styles.transferPanelSub, { color: colors.secondary }]}>Select destination room:</Text>
+
+                    <ScrollView
+                      style={styles.roomPickerList}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                    >
+                      {transferableRooms.map((r) => {
+                        const cnt = occupantCountMap[r.id] ?? 0;
+                        const max = r.maxOccupants ?? 0;
+                        const isFull = max > 0 && cnt >= max;
+                        const isSelected = transferTargetId === r.id;
+                        return (
+                          <TouchableOpacity
+                            key={r.id}
+                            style={[
+                              styles.roomPickerItem,
+                              { backgroundColor: colors.card, borderColor: colors.border },
+                              isSelected && [styles.roomPickerItemSelected, { borderColor: colors.primary, backgroundColor: isDark ? "#1E2A4A" : "#EFF6FF" }],
+                              isFull && styles.roomPickerItemFull,
+                            ]}
+                            onPress={() => !isFull && setTransferTargetId(r.id)}
+                            disabled={isFull}
+                          >
+                            <Ionicons
+                              name="home-outline"
+                              size={16}
+                              color={
+                                isFull
+                                  ? colors.secondary
+                                  : isSelected
+                                  ? colors.primary
+                                  : colors.text
+                              }
+                            />
+                            <Text
+                              style={[
+                                styles.roomPickerItemText,
+                                { color: colors.text },
+                                isSelected && { color: colors.primary, fontWeight: "800" },
+                                isFull && { color: colors.secondary },
+                              ]}
+                            >
+                              Room {r.roomNumber}
+                              {r.floor !== null && r.floor !== undefined
+                                ? ` (F${r.floor})`
+                                : ""}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.roomPickerOccupancy,
+                                { color: colors.secondary },
+                                isFull && { color: colors.danger },
+                              ]}
+                            >
+                              {cnt}
+                              {max > 0 ? `/${max}` : ""}{" "}
+                              {isFull ? "• Full" : ""}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.transferConfirmBtn,
+                        { backgroundColor: colors.primary },
+                        (!transferTargetId || transferSaving) && { opacity: 0.5 },
+                      ]}
+                      disabled={!transferTargetId || transferSaving}
+                      onPress={doTransfer}
+                    >
+                      {transferSaving ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" />
+                          <Text style={styles.transferConfirmText}>Confirm Transfer</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* ── Room info & actions ────────────────────────────────────── */}
+                <View style={[styles.sectionBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                  <View style={styles.sectionBoxHeader}>
+                    <Ionicons name="information-circle-outline" size={16} color={colors.warning} />
+                    <Text style={[styles.sectionBoxTitle, { color: colors.text }]}>Room Information</Text>
+                  </View>
+                  <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
+                    <Text style={[styles.infoKey, { color: colors.secondary }]}>Room Number</Text>
+                    <Text style={[styles.infoVal, { color: colors.text }]}>{selectedRoom?.roomNumber}</Text>
+                  </View>
+                  <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
+                    <Text style={[styles.infoKey, { color: colors.secondary }]}>Floor</Text>
+                    <Text style={[styles.infoVal, { color: colors.text }]}>
+                      {selectedRoom?.floor !== undefined && selectedRoom.floor !== null
+                        ? `Floor ${selectedRoom.floor}`
+                        : "Ground Floor"}
+                    </Text>
+                  </View>
+                  <View style={[styles.infoRow, { borderBottomColor: colors.border }]}>
+                    <Text style={[styles.infoKey, { color: colors.secondary }]}>Occupancy Status</Text>
+                    <Text style={[styles.infoVal, { color: colors.text }]}>
+                      {currentRoomOccupants.length >= localMaxOccupants
+                        ? "Full Capacity"
+                        : currentRoomOccupants.length > 0
+                        ? "Partially Occupied"
+                        : "Completely Available"}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.deleteRoomBtn,
+                      {
+                        backgroundColor: colors.dangerLight,
+                        opacity: currentRoomOccupants.length > 0 ? 0.45 : 1,
+                      },
+                    ]}
+                    onPress={() => {
+                      if (!selectedRoom) return;
+                      if (currentRoomOccupants.length > 0) {
+                        Alert.alert(
+                          "Room Occupied",
+                          `Room ${selectedRoom.roomNumber} still has ${currentRoomOccupants.length} active occupants. Move them first before deleting the room.`
+                        );
+                        return;
+                      }
+                      setDetailVisible(false);
+                      onDeleteRoom(selectedRoom);
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                    <Text style={[styles.deleteRoomBtnText, { color: colors.danger }]}>Delete Room</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
@@ -869,64 +978,60 @@ const styles = StyleSheet.create({
     width: "47%",
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 18,
-    overflow: "hidden",
+    borderRadius: 16,
+    padding: 12,
     backgroundColor: COLORS.card,
     shadowColor: "#000",
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
   },
-  roomCardStrip: {
-    height: 44,
+  roomCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
+    marginBottom: 8,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  roomIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   roomCardBody: {
-    padding: 12,
-    gap: 4,
+    gap: 3,
   },
   roomNumber: { fontSize: 15, fontWeight: "800", color: COLORS.text },
   roomFloor: { fontSize: 11, color: COLORS.secondary },
   occupancyBarBg: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.grayFill,
-    marginTop: 6,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: COLORS.surfaceSecondary,
+    marginTop: 8,
     overflow: "hidden",
   },
   occupancyBarFill: {
-    height: 4,
-    borderRadius: 2,
+    height: 5,
+    borderRadius: 3,
   },
   roomCardFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 6,
+    marginTop: 8,
   },
-  occupantCount: { fontSize: 11, fontWeight: "700" },
+  occupantCount: { fontSize: 11, fontWeight: "600" },
   statusBadge: {
-    borderRadius: 8,
+    borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
   statusBadgeText: { fontSize: 9, fontWeight: "800" },
   roomDeleteBtn: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: 8,
-    backgroundColor: COLORS.dangerLight,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -941,6 +1046,27 @@ const styles = StyleSheet.create({
     padding: 22,
     paddingBottom: 36,
   },
+  modalCardLarge: {
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 22,
+    paddingBottom: 36,
+    maxHeight: "90%",
+  },
+  modalDismissArea: { flex: 1 },
+  modalDragPillWrap: {
+    alignItems: "center",
+    paddingVertical: 6,
+    marginBottom: 6,
+  },
+  modalDragPill: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: COLORS.border,
+  },
+
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1018,7 +1144,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     backgroundColor: COLORS.card,
-    gap: 10,
+    gap: 12,
+    marginBottom: 16,
   },
   sectionBoxHeader: {
     flexDirection: "row",

@@ -128,6 +128,14 @@ export default function RepairManagement({ hostelId }: Props) {
   const [personPassword, setPersonPassword] = useState("Repair@123");
   const [savingPerson, setSavingPerson] = useState(false);
 
+  // Modal: Edit Repair Person
+  const [editingPerson, setEditingPerson] = useState<RepairPerson | null>(null);
+  const [editPersonName, setEditPersonName] = useState("");
+  const [editPersonPhone, setEditPersonPhone] = useState("");
+  const [editPersonSpecialty, setEditPersonSpecialty] = useState("General Maintenance");
+  const [editPersonStatus, setEditPersonStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+  const [savingEditPerson, setSavingEditPerson] = useState(false);
+
   useEffect(() => {
     loadAllData();
   }, [hostelId]);
@@ -282,6 +290,39 @@ export default function RepairManagement({ hostelId }: Props) {
       await loadAllData();
     } catch (err: any) {
       setError(err?.message || "Failed to remove repair person");
+    }
+  }
+
+  // Update Repair Person
+  async function handleUpdateRepairPerson(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingPerson) return;
+    if (!editPersonName.trim() || !editPersonPhone.trim()) {
+      setError("Name and mobile number are required");
+      return;
+    }
+
+    try {
+      setSavingEditPerson(true);
+      setError("");
+
+      await apiRequest(`/hostels/${hostelId}/repair-persons/${editingPerson.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editPersonName.trim(),
+          phone: editPersonPhone.trim(),
+          specialty: editPersonSpecialty,
+          status: editPersonStatus,
+        }),
+      });
+
+      setEditingPerson(null);
+      showToast("Technician updated successfully!");
+      await loadAllData();
+    } catch (err: any) {
+      setError(err?.message || "Failed to update technician");
+    } finally {
+      setSavingEditPerson(false);
     }
   }
 
@@ -803,7 +844,19 @@ export default function RepairManagement({ hostelId }: Props) {
                     </div>
                   </div>
 
-                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setEditingPerson(p);
+                        setEditPersonName(p.name);
+                        setEditPersonPhone(p.phone);
+                        setEditPersonSpecialty(p.specialty || "General Maintenance");
+                        setEditPersonStatus((p.status as any) || "ACTIVE");
+                      }}
+                    >
+                      ✏️ Edit
+                    </button>
                     <button
                       className="secondary-button"
                       onClick={() => handleRemoveRepairPerson(p.id, p.name)}
@@ -1051,6 +1104,71 @@ export default function RepairManagement({ hostelId }: Props) {
                 </button>
                 <button type="submit" className="primary-button" disabled={savingPerson}>
                   {savingPerson ? "Adding..." : "Add Repair Person"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          MODAL: EDIT REPAIR PERSON
+          ============================================================ */}
+      {editingPerson && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: 500 }}>
+            <h2>Edit Technician</h2>
+            <p className="subtitle">Update details for {editingPerson.name}.</p>
+
+            <form onSubmit={handleUpdateRepairPerson}>
+              <label>Full Name *</label>
+              <input
+                type="text"
+                value={editPersonName}
+                onChange={(e) => setEditPersonName(e.target.value)}
+                required
+              />
+
+              <label>Mobile Number *</label>
+              <input
+                type="tel"
+                value={editPersonPhone}
+                onChange={(e) => setEditPersonPhone(e.target.value)}
+                required
+              />
+
+              <label>Specialty</label>
+              <select
+                value={editPersonSpecialty}
+                onChange={(e) => setEditPersonSpecialty(e.target.value)}
+              >
+                {SPECIALTY_OPTIONS.map((spec) => (
+                  <option key={spec} value={spec}>
+                    {spec}
+                  </option>
+                ))}
+              </select>
+
+              <label>Status</label>
+              <select
+                value={editPersonStatus}
+                onChange={(e) => setEditPersonStatus(e.target.value as any)}
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+
+              <div className="modal-actions" style={{ marginTop: 22 }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setEditingPerson(null)}
+                  disabled={savingEditPerson}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={savingEditPerson}>
+                  {savingEditPerson ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

@@ -61,8 +61,8 @@ interface PaymentsScreenProps {
 
   // Payment proof actions
   paymentActionId: string;
-  onReviewPayment: (paymentId: string, status: "APPROVED" | "REJECTED") => void;
-  onDeletePayment?: (paymentId: string) => void;
+  onReviewPayment: (paymentId: string, status: "APPROVED" | "REJECTED", hostelId?: string) => void;
+  onDeletePayment?: (paymentId: string, hostelId?: string) => void;
 
   // Reminder actions
   onRemindFee?: (feeId: string, renterName: string, customMessage?: string) => void;
@@ -120,6 +120,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
   // Options menu: "menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders"
   const [activeOption, setActiveOption] = useState<"menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders">("menu");
   const [showMenuSheet, setShowMenuSheet] = useState(false);
+  const [infoModalText, setInfoModalText] = useState<{ title: string; desc: string } | null>(null);
 
   // Sub-filter for Fees: "all" | "paid" | "unpaid"
   const [feeFilter, setFeeFilter] = useState<"all" | "paid" | "unpaid">("all");
@@ -186,13 +187,34 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
         {/* Navigation & Header */}
         <View style={styles.topNavRow}>
           {onBack && (
-            <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={onBack}>
+            <TouchableOpacity
+              style={[styles.backButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => {
+                if (activeOption !== "menu") {
+                  setActiveOption("menu");
+                } else {
+                  onBack();
+                }
+              }}
+            >
               <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
           )}
           <View style={{ flex: 1 }}>
             <Header
-              title="Payments & Invoicing"
+              title={
+                activeOption === "menu"
+                  ? "Payments & Invoicing"
+                  : activeOption === "fees_all"
+                  ? "Fees (All Records)"
+                  : activeOption === "fees_paid"
+                  ? "Paid People"
+                  : activeOption === "fees_unpaid"
+                  ? "Unpaid People"
+                  : activeOption === "proofs"
+                  ? "Payment Receipts"
+                  : "Remind Option"
+              }
               subtitle={selectedHostel?.name || "Financial Management"}
               onRefresh={onRefresh}
             />
@@ -241,9 +263,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Fees (All Records)</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    View all resident invoices, dues, and payment logs
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.grayFill }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: colors.text }]}>{fees.length}</Text>
@@ -262,9 +281,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Paid People</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Residents who have cleared their rental fees in full
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(16,185,129,0.2)" : COLORS.successLight }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: COLORS.success }]}>{paidFees.length} Paid</Text>
@@ -283,9 +299,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Unpaid People</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Residents with outstanding balances or overdue rent
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(239,68,68,0.2)" : COLORS.dangerLight }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: COLORS.danger }]}>{unpaidFees.length} Due</Text>
@@ -304,9 +317,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Payment Receipts (Proofs)</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Review screenshot proofs submitted by residents
-                  </Text>
                 </View>
                 {pendingProofsCount > 0 && (
                   <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(245,158,11,0.25)" : COLORS.warningLight }]}>
@@ -327,9 +337,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Remind Option</Text>
-                  <Text style={[styles.menuCardDesc, { color: colors.secondary }]}>
-                    Auto-starts 5 days before due date & instant alerts
-                  </Text>
                 </View>
                 <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(139,92,246,0.2)" : COLORS.purpleLight }]}>
                   <Text style={[styles.menuCounterBadgeText, { color: COLORS.purple }]}>{unpaidFees.length} To Remind</Text>
@@ -352,9 +359,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={[styles.menuActionTitle, { color: colors.text }]}>Auto-Generate Monthly Fees</Text>
-                    <Text style={[styles.menuActionDesc, { color: colors.secondary }]}>
-                      Schedule next month invoices for all room occupants
-                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
                 </TouchableOpacity>
@@ -371,9 +375,6 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={[styles.menuActionTitle, { color: colors.text }]}>Create Custom Fee</Text>
-                  <Text style={[styles.menuActionDesc, { color: colors.secondary }]}>
-                    Issue a one-off fee or custom penalty charge
-                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
               </TouchableOpacity>
@@ -383,18 +384,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
           /* ── In-Section Top Navigation Bar (When an option is open) ── */
           <View style={[styles.menuActiveNavRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TouchableOpacity
-              style={[styles.menuBackToMenuBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-              onPress={() => setActiveOption("menu")}
-            >
-              <Ionicons name="arrow-back" size={16} color={colors.primary} />
-              <Text style={[styles.menuBackToMenuText, { color: colors.primary }]}>Payments Menu</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.menuOptionSelectorBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              style={[styles.menuOptionSelectorBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, flex: 1 }]}
               onPress={() => setShowMenuSheet(true)}
             >
-              <Ionicons name="options-outline" size={14} color={colors.text} />
+              <Ionicons name="options-outline" size={15} color={colors.text} />
               <Text style={[styles.menuOptionSelectorText, { color: colors.text }]} numberOfLines={1}>
                 {activeOption === "fees_all" && "All Fees"}
                 {activeOption === "fees_paid" && "Paid People"}
@@ -403,6 +396,42 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 {activeOption === "reminders" && "Reminders"}
               </Text>
               <Ionicons name="chevron-down" size={13} color={colors.secondary} />
+            </TouchableOpacity>
+
+            {/* Info 'i' button replacing the option description */}
+            <TouchableOpacity
+              style={[styles.infoIconBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginLeft: 10 }]}
+              onPress={() => {
+                if (activeOption === "fees_all") {
+                  setInfoModalText({
+                    title: "Fees (All Records)",
+                    desc: "View all resident invoices, dues, and payment logs across all tenants.",
+                  });
+                } else if (activeOption === "fees_paid") {
+                  setInfoModalText({
+                    title: "Paid People",
+                    desc: "Residents who have cleared their rental fees and have zero outstanding dues.",
+                  });
+                } else if (activeOption === "fees_unpaid") {
+                  setInfoModalText({
+                    title: "Unpaid People",
+                    desc: "Residents with outstanding balances or overdue rent collections.",
+                  });
+                } else if (activeOption === "proofs") {
+                  setInfoModalText({
+                    title: "Payment Receipts (Proofs)",
+                    desc: "Review screenshot receipts submitted by residents for UPI or cash payments.",
+                  });
+                } else if (activeOption === "reminders") {
+                  setInfoModalText({
+                    title: "Remind Option",
+                    desc: "Automatic reminders trigger 5 days before due date, plus manual WhatsApp/App notifications.",
+                  });
+                }
+              }}
+              accessibilityLabel="Option Details"
+            >
+              <Ionicons name="information-circle-outline" size={19} color={colors.primary} />
             </TouchableOpacity>
           </View>
         )}
@@ -448,14 +477,14 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               <View style={styles.headerBtnGroup}>
                 {onGenerateMonthlyFees && (
                   <TouchableOpacity
-                    style={[styles.generateButton, isDark && { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                    style={[styles.generateButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                     onPress={() => setShowGenerateModal?.(true)}
                   >
-                    <Ionicons name="flash-outline" size={13} color={COLORS.primary} />
-                    <Text style={styles.generateButtonText}>Auto</Text>
+                    <Ionicons name="flash-outline" size={13} color={colors.primary} />
+                    <Text style={[styles.generateButtonText, { color: colors.primary }]}>Auto</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.smallPrimaryButton} onPress={onOpenFeeModal}>
+                <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenFeeModal}>
                   <Ionicons name="add" size={16} color="#FFFFFF" />
                   <Text style={styles.smallPrimaryText}>Add Fee</Text>
                 </TouchableOpacity>
@@ -531,20 +560,20 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         {remaining > 0 && onRemindFee ? (
                           <TouchableOpacity
-                            style={[styles.remindBtn, isDark && { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                            style={[styles.remindBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                             onPress={() => openCustomReminder(fee, renterTitle)}
                           >
-                            <Ionicons name="notifications-outline" size={13} color={COLORS.primary} />
-                            <Text style={styles.remindBtnText}>Remind</Text>
+                            <Ionicons name="notifications-outline" size={13} color={colors.primary} />
+                            <Text style={[styles.remindBtnText, { color: colors.primary }]}>Remind</Text>
                           </TouchableOpacity>
                         ) : null}
 
                         {onDeleteFee ? (
                           <TouchableOpacity
-                            style={[styles.deleteBtn, isDark && { backgroundColor: "rgba(239,68,68,0.18)" }]}
+                            style={[styles.deleteBtn, { backgroundColor: colors.dangerLight }]}
                             onPress={() => onDeleteFee(fee.id)}
                           >
-                            <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                            <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -638,10 +667,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                         </View>
                         {onDeletePayment ? (
                           <TouchableOpacity
-                            style={[styles.deleteBtn, isDark && { backgroundColor: "rgba(239,68,68,0.18)" }]}
-                            onPress={() => onDeletePayment(payment.id)}
+                            style={[styles.deleteBtn, { backgroundColor: colors.dangerLight }]}
+                            onPress={() => onDeletePayment(payment.id, payment.hostelId || selectedHostel?.id)}
                           >
-                            <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                            <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -699,24 +728,31 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                     {isSubmitted ? (
                       <View style={styles.reviewActions}>
                         <TouchableOpacity
-                          style={[styles.reviewBtn, styles.rejectBtn, isDark && { backgroundColor: "rgba(239,68,68,0.15)", borderColor: "rgba(239,68,68,0.3)" }]}
+                          style={[
+                            styles.reviewBtn,
+                            styles.rejectBtn,
+                            {
+                              backgroundColor: colors.dangerLight,
+                              borderColor: isDark ? "rgba(239,68,68,0.3)" : "#FECACA",
+                            },
+                          ]}
                           disabled={paymentActionId === payment.id}
-                          onPress={() => onReviewPayment(payment.id, "REJECTED")}
+                          onPress={() => onReviewPayment(payment.id, "REJECTED", payment.hostelId || selectedHostel?.id)}
                         >
                           {paymentActionId === payment.id ? (
-                            <ActivityIndicator size="small" color={COLORS.danger} />
+                            <ActivityIndicator size="small" color={colors.danger} />
                           ) : (
                             <>
-                              <Ionicons name="close-circle-outline" size={17} color={COLORS.danger} />
-                              <Text style={styles.rejectBtnText}>Reject</Text>
+                              <Ionicons name="close-circle-outline" size={17} color={colors.danger} />
+                              <Text style={[styles.rejectBtnText, { color: colors.danger }]}>Reject</Text>
                             </>
                           )}
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                          style={[styles.reviewBtn, styles.approveBtn]}
+                          style={[styles.reviewBtn, styles.approveBtn, { backgroundColor: colors.primary }]}
                           disabled={paymentActionId === payment.id}
-                          onPress={() => onReviewPayment(payment.id, "APPROVED")}
+                          onPress={() => onReviewPayment(payment.id, "APPROVED", payment.hostelId || selectedHostel?.id)}
                         >
                           {paymentActionId === payment.id ? (
                             <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1241,6 +1277,38 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* ── Option Info Modal ('i' icon) ── */}
+      <Modal visible={!!infoModalText} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.infoModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setInfoModalText(null)}
+        >
+          <View style={[styles.infoModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="information-circle" size={22} color={colors.primary} />
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: "800", color: colors.text, flex: 1 }}>
+                {infoModalText?.title}
+              </Text>
+              <TouchableOpacity onPress={() => setInfoModalText(null)}>
+                <Ionicons name="close" size={20} color={colors.secondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 14, color: colors.secondary, lineHeight: 21 }}>
+              {infoModalText?.desc}
+            </Text>
+            <TouchableOpacity
+              style={[styles.smallPrimaryButton, { marginTop: 16, alignSelf: "flex-end" }]}
+              onPress={() => setInfoModalText(null)}
+            >
+              <Text style={styles.smallPrimaryText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1390,6 +1458,11 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     padding: 15,
     marginBottom: 12,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   cardTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text },
@@ -1698,6 +1771,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   menuIconContainer: {
     width: 44,
@@ -1729,6 +1807,11 @@ const styles = StyleSheet.create({
     padding: 13,
     borderRadius: 14,
     borderWidth: 1,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   menuActionIconBox: {
     width: 38,
@@ -1826,4 +1909,30 @@ const styles = StyleSheet.create({
   menuSheetItemTitle: { fontSize: 14, fontWeight: "700" },
   menuSheetItemSub: { fontSize: 11, marginTop: 1 },
   menuSheetDivider: { height: 1, marginVertical: 8 },
+  infoIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  infoModalCard: {
+    width: "88%",
+    maxWidth: 420,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
 });

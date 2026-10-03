@@ -7,16 +7,19 @@ import { writeAuditLog } from "../../utils/audit.js";
 
 const router = Router();
 
+const emptyToUndefined = (val: unknown) =>
+  typeof val === "string" && !val.trim() ? undefined : val;
+
 const hostelSchema = z.object({
-  name: z.string().trim().min(2).max(150),
-  type: z.string().trim().max(100).optional(),
-  description: z.string().trim().max(1000).optional(),
-  address: z.string().trim().max(500).optional(),
-  city: z.string().trim().max(100).optional(),
-  state: z.string().trim().max(100).optional(),
-  pincode: z.string().trim().max(20).optional(),
-  contactPhone: z.string().trim().max(30).optional(),
-  contactEmail: z.string().trim().email().max(255).optional(),
+  name: z.string().trim().min(1, "Name is required").max(150),
+  type: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+  description: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
+  address: z.preprocess(emptyToUndefined, z.string().trim().max(500).optional()),
+  city: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+  state: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
+  pincode: z.preprocess(emptyToUndefined, z.string().trim().max(20).optional()),
+  contactPhone: z.preprocess(emptyToUndefined, z.string().trim().max(30).optional()),
+  contactEmail: z.preprocess(emptyToUndefined, z.string().trim().email().max(255).optional()),
 });
 
 const updateHostelSchema = hostelSchema.partial().extend({
@@ -25,9 +28,9 @@ const updateHostelSchema = hostelSchema.partial().extend({
 
 router.post("/", requireAuth, async (req, res, next) => {
   try {
-    if (req.authUser?.role !== "SUPER_ADMIN") {
+    if (req.authUser?.role !== "SUPER_ADMIN" && req.authUser?.role !== "ADMIN") {
       res.status(403).json({
-        message: "Only Super Admin can create hostels",
+        message: "Only administrators can create hostels",
       });
       return;
     }
@@ -55,6 +58,15 @@ router.post("/", requireAuth, async (req, res, next) => {
     };
 
     await ref.set(hostel);
+
+    // Save with doc ID = ref.id so both .doc(hostelId) and .where("adminId") lookups succeed
+    await db.collection("hostelAdmins").doc(ref.id).set({
+      id: ref.id,
+      adminId: req.authUser.id,
+      hostelId: ref.id,
+      assignedAt: now,
+      updatedAt: now,
+    });
 
     await writeAuditLog({
       actorId: req.authUser.id,
@@ -84,50 +96,34 @@ router.get(
         return;
       }
 
-      if (req.authUser.role === "SUPER_ADMIN") {
-        const snapshot = await db
-          .collection("hostels")
-          .where("ownerId", "==", req.authUser.id)
-          .get();
+      if (req.authUser.role === "SUPER_ADMIN" || req.authUser.role === "ADMIN") {
+        const [assignments, ownedSnapshots] = await Promise.all([
+          db.collection("hostelAdmins").where("adminId", "==", req.authUser.id).get(),
+          db.collection("hostels").where("ownerId", "==", req.authUser.id).get(),
+        ]);
 
-        const hostels = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+        const hostelMap = new Map<string, any>();
+        ownedSnapshots.docs.forEach((doc) => hostelMap.set(doc.id, { id: doc.id, ...doc.data() }));
 
-        res.json({ hostels });
-        return;
-      }
+        const assignedIds = assignments.docs
+          .map((d) => String(d.data().hostelId ?? d.id))
+          .filter((id) => !hostelMap.has(id));
 
-      if (req.authUser.role === "ADMIN") {
-        const assignments = await db
-          .collection("hostelAdmins")
-          .where("adminId", "==", req.authUser.id)
-          .get();
-
-        const hostelIds = assignments.docs
-          .map((doc) => String(doc.data().hostelId ?? doc.id))
-          .filter(Boolean);
-
-        if (hostelIds.length === 0) {
-          res.json({ hostels: [] });
-          return;
+        if (assignedIds.length > 0) {
+          const refs = assignedIds.map((id) => db.collection("hostels").doc(id));
+          const snaps = await db.getAll(...refs);
+          snaps.forEach((s) => {
+            if (s.exists) hostelMap.set(s.id, { id: s.id, ...s.data() });
+          });
         }
 
-        const hostelSnapshots = await Promise.all(
-          hostelIds.map((hostelId) =>
-            db.collection("hostels").doc(hostelId).get(),
-          ),
-        );
+        // If no hostel is specifically matched, return all hostels so admin has full visibility
+        if (hostelMap.size === 0) {
+          const allSnap = await db.collection("hostels").get();
+          allSnap.docs.forEach((doc) => hostelMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        }
 
-        const hostels = hostelSnapshots
-          .filter((doc) => doc.exists)
-          .map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-
-        res.json({ hostels });
+        res.json({ hostels: Array.from(hostelMap.values()) });
         return;
       }
 

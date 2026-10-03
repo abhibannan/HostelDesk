@@ -319,10 +319,19 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
             }
             // User is restored instantly!
             setInitializing(false);
+            return;
           }
+        }
+        if (isMounted) {
+          setLoginRole("RENTER");
+          setInitializing(false);
         }
       } catch (err) {
         console.warn("Failed reading cached auth session:", err);
+        if (isMounted) {
+          setLoginRole("RENTER");
+          setInitializing(false);
+        }
       }
     }
 
@@ -359,6 +368,7 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
             setToken(null);
             setCurrentUser(null);
             setCurrentRenterDoc(null);
+            setLoginRole("RENTER");
           }
           if (mounted) {
             setInitializing(false);
@@ -738,6 +748,7 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
     setToken(null);
     setCurrentUser(null);
     setCurrentRenterDoc(null);
+    setLoginRole("RENTER");
 
     setEmail("");
     setPassword("");

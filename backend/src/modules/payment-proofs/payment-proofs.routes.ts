@@ -23,29 +23,77 @@ const reviewPaymentProofSchema = z.object({
   reviewNote: z.string().trim().max(500).optional(),
 });
 
-async function paymentWithProofUrl(
-  document: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot,
-) : Promise<Record<string, unknown>> {
-  const data = document.data();
-  const payment: Record<string, unknown> = { id: document.id, ...(data ?? {}) };
-  const uploadId = String(data?.proofUploadId ?? "");
+// Cache signed URLs to avoid expensive repetitive Cloud Storage signing
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const paymentsCache = new Map<string, { payments: any[]; expiresAt: number }>();
 
-  if (!uploadId) return payment;
-
-  const uploadSnapshot = await db.collection("uploads").doc(uploadId).get();
-  const storagePath = String(uploadSnapshot.data()?.storagePath ?? "");
-  if (!storagePath) return payment;
-
-  try {
-    const [proofUrl] = await storage.file(storagePath).getSignedUrl({
-      action: "read",
-      expires: Date.now() + 60 * 60 * 1000,
-    });
-    return { ...payment, proofUrl };
-  } catch (error) {
-    console.error(`PAYMENT PROOF URL FAILED (${uploadId}):`, error);
-    return payment;
+export function clearPaymentsCache(hostelId?: string) {
+  if (hostelId) {
+    for (const key of paymentsCache.keys()) {
+      if (key.startsWith(hostelId)) paymentsCache.delete(key);
+    }
+  } else {
+    paymentsCache.clear();
   }
+}
+
+async function resolveProofUrlsForPayments(documents: (FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot)[]) {
+  const now = Date.now();
+  const rawList = documents.map((doc) => ({
+    id: doc.id,
+    ...(doc.data() ?? {}),
+  })) as Record<string, any>[];
+
+  // Identify upload IDs that need resolution
+  const missingUploadIds = new Set<string>();
+  for (const item of rawList) {
+    const uploadId = String(item.proofUploadId ?? "");
+    if (uploadId) {
+      const cached = signedUrlCache.get(uploadId);
+      if (!cached || cached.expiresAt <= now) {
+        missingUploadIds.add(uploadId);
+      }
+    }
+  }
+
+  // Batch-fetch all missing upload documents in 1 single Firestore call
+  if (missingUploadIds.size > 0) {
+    const uploadRefs = Array.from(missingUploadIds).map((id) => db.collection("uploads").doc(id));
+    const uploadSnaps = await db.getAll(...uploadRefs);
+    await Promise.all(
+      uploadSnaps.map(async (snap) => {
+        if (!snap.exists) return;
+        const uploadId = snap.id;
+        const storagePath = String(snap.data()?.storagePath ?? "");
+        if (!storagePath) return;
+        try {
+          const [proofUrl] = await storage.file(storagePath).getSignedUrl({
+            action: "read",
+            expires: now + 50 * 60 * 1000, // 50 minutes
+          });
+          signedUrlCache.set(uploadId, {
+            url: proofUrl,
+            expiresAt: now + 45 * 60 * 1000,
+          });
+        } catch (err) {
+          console.error(`PAYMENT PROOF URL FAILED (${uploadId}):`, err);
+        }
+      })
+    );
+  }
+
+  // Attach resolved proof URLs
+  for (const item of rawList) {
+    const uploadId = String(item.proofUploadId ?? "");
+    if (uploadId) {
+      const cached = signedUrlCache.get(uploadId);
+      if (cached && cached.expiresAt > now) {
+        item.proofUrl = cached.url;
+      }
+    }
+  }
+
+  return rawList;
 }
 
 router.get(
@@ -57,6 +105,13 @@ router.get(
       const hostelId = req.params.hostelId;
       if (typeof hostelId !== "string") {
         res.status(400).json({ message: "Invalid hostel ID" });
+        return;
+      }
+
+      const cacheKey = `${hostelId}:${req.authUser?.role}:${req.authUser?.id}`;
+      const cached = paymentsCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        res.json({ payments: cached.payments });
         return;
       }
 
@@ -80,12 +135,18 @@ router.get(
           : [];
       }
 
-      const payments = await Promise.all(documents.map(paymentWithProofUrl));
+      const payments = await resolveProofUrlsForPayments(documents);
       payments.sort((a, b) =>
         String(b.submittedAt ?? b.createdAt ?? "").localeCompare(
           String(a.submittedAt ?? a.createdAt ?? ""),
         ),
       );
+
+      paymentsCache.set(cacheKey, {
+        payments,
+        expiresAt: Date.now() + 4000, // 4-second burst cache
+      });
+
       res.json({ payments });
     } catch (error) {
       next(error);
@@ -322,6 +383,8 @@ router.post(
         });
       }
 
+      clearPaymentsCache(hostelId);
+
       res.status(201).json({
         message: "Payment proof submitted successfully",
         payment,
@@ -476,6 +539,8 @@ router.patch(
         });
       }
 
+      clearPaymentsCache(hostelId);
+
       res.json({
         message:
           newStatus === "APPROVED"
@@ -496,90 +561,136 @@ router.patch(
   },
 );
 
-// Delete payment proof or payment record
-router.delete(
-  "/:hostelId/payments/:paymentId",
-  requireAuth,
-  requireHostelAccess,
-  async (req, res, next) => {
-    try {
-      if (
-        req.authUser?.role !== "SUPER_ADMIN" &&
-        req.authUser?.role !== "ADMIN"
-      ) {
+// Delete payment proof or payment record (accessible via both /payments/:paymentId and /payment-proofs/:paymentId)
+const deletePaymentHandler = async (
+  req: import("express").Request,
+  res: import("express").Response,
+  next: import("express").NextFunction,
+) => {
+  try {
+    const isSuperAdminOrAdmin =
+      req.authUser?.role === "SUPER_ADMIN" ||
+      req.authUser?.role === "ADMIN";
+    const isRenter = req.authUser?.role === "RENTER";
+
+    if (!isSuperAdminOrAdmin && !isRenter) {
+      res.status(403).json({
+        message: "You are not authorized to delete payment records",
+      });
+      return;
+    }
+
+    const hostelId = typeof req.params.hostelId === "string" ? req.params.hostelId : "";
+    const paymentId = typeof req.params.paymentId === "string" ? req.params.paymentId : "";
+
+    if (!hostelId || !paymentId) {
+      res.status(400).json({ message: "Invalid ID parameters" });
+      return;
+    }
+
+    const paymentRef = db.collection("payments").doc(paymentId);
+    const paymentDoc = await paymentRef.get();
+
+    if (!paymentDoc.exists || paymentDoc.data()?.hostelId !== hostelId) {
+      res.status(404).json({ message: "Payment record not found" });
+      return;
+    }
+
+    const paymentData = paymentDoc.data();
+    const status = String(paymentData?.status || "").toUpperCase();
+    const paymentAmount = Number(paymentData?.amount || 0);
+    const feeId = String(paymentData?.feeId || "");
+
+    // If RENTER: verify ownership and ensure not already approved
+    if (isRenter) {
+      const renterSnap = await db
+        .collection("renters")
+        .where("userId", "==", req.authUser!.id)
+        .where("hostelId", "==", hostelId)
+        .where("status", "==", "ACTIVE")
+        .limit(1)
+        .get();
+
+      const renterDoc = renterSnap.docs[0];
+      if (!renterDoc || renterDoc.id !== paymentData?.renterId) {
+        res.status(403).json({ message: "You can only delete your own payment submissions" });
+        return;
+      }
+
+      if (status === "APPROVED") {
         res.status(403).json({
-          message: "Only administrators can delete payment records",
+          message: "Approved payment proofs cannot be deleted. Please contact your hostel administrator.",
         });
         return;
       }
-
-      const hostelId = typeof req.params.hostelId === "string" ? req.params.hostelId : "";
-      const paymentId = typeof req.params.paymentId === "string" ? req.params.paymentId : "";
-
-      if (!hostelId || !paymentId) {
-        res.status(400).json({ message: "Invalid ID parameters" });
-        return;
-      }
-
-      const paymentRef = db.collection("payments").doc(paymentId);
-      const paymentDoc = await paymentRef.get();
-
-      if (!paymentDoc.exists || paymentDoc.data()?.hostelId !== hostelId) {
-        res.status(404).json({ message: "Payment record not found" });
-        return;
-      }
-
-      const paymentData = paymentDoc.data();
-      const status = String(paymentData?.status || "").toUpperCase();
-      const paymentAmount = Number(paymentData?.amount || 0);
-      const feeId = String(paymentData?.feeId || "");
-
-      // If this payment was APPROVED, adjust the fee back
-      if (status === "APPROVED" && feeId && paymentAmount > 0) {
-        const feeRef = db.collection("fees").doc(feeId);
-        const feeDoc = await feeRef.get();
-        if (feeDoc.exists) {
-          const feeData = feeDoc.data();
-          const currentPaid = Number(feeData?.paidAmount || 0);
-          const totalFee = Number(feeData?.amount || 0);
-          const newPaid = Math.max(0, currentPaid - paymentAmount);
-          const newStatus =
-            newPaid >= totalFee
-              ? "PAID"
-              : newPaid > 0
-                ? "PARTIALLY_PAID"
-                : "PENDING";
-          await feeRef.update({
-            paidAmount: newPaid,
-            status: newStatus,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      }
-
-      await paymentRef.delete();
-
-      await writeAuditLog({
-        actorId: req.authUser!.id,
-        action: "DELETE_PAYMENT",
-        entityType: "PAYMENT",
-        entityId: paymentId,
-        metadata: {
-          hostelId,
-          feeId,
-          amount: paymentAmount,
-          renterId: paymentData?.renterId,
-        },
-      });
-
-      res.json({
-        message: "Payment record deleted successfully",
-        paymentId,
-      });
-    } catch (error) {
-      next(error);
     }
-  },
-);
+
+    // If this payment was APPROVED (by admin), adjust the fee back
+    if (status === "APPROVED" && feeId && paymentAmount > 0) {
+      const feeRef = db.collection("fees").doc(feeId);
+      const feeDoc = await feeRef.get();
+      if (feeDoc.exists) {
+        const feeData = feeDoc.data();
+        const currentPaid = Number(feeData?.paidAmount || 0);
+        const totalFee = Number(feeData?.amount || 0);
+        const newPaid = Math.max(0, currentPaid - paymentAmount);
+        const newStatus =
+          newPaid >= totalFee
+            ? "PAID"
+            : newPaid > 0
+              ? "PARTIALLY_PAID"
+              : "PENDING";
+        await feeRef.update({
+          paidAmount: newPaid,
+          status: newStatus,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Clean up any admin notifications created for this payment proof
+    try {
+      const notifSnap = await db
+        .collection("notifications")
+        .where("entityId", "==", paymentId)
+        .get();
+      const batch = db.batch();
+      notifSnap.docs.forEach((d) => batch.delete(d.ref));
+      if (!notifSnap.empty) {
+        await batch.commit();
+      }
+    } catch {
+      // non-fatal
+    }
+
+    await paymentRef.delete();
+
+    await writeAuditLog({
+      actorId: req.authUser!.id,
+      action: "DELETE_PAYMENT",
+      entityType: "PAYMENT",
+      entityId: paymentId,
+      metadata: {
+        hostelId,
+        feeId,
+        amount: paymentAmount,
+        renterId: paymentData?.renterId,
+        role: req.authUser!.role,
+      },
+    });
+
+    clearPaymentsCache(hostelId);
+
+    res.json({
+      message: "Payment record deleted successfully",
+      paymentId,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+router.delete("/:hostelId/payments/:paymentId", requireAuth, requireHostelAccess, deletePaymentHandler);
+router.delete("/:hostelId/payment-proofs/:paymentId", requireAuth, requireHostelAccess, deletePaymentHandler);
 
 export default router;

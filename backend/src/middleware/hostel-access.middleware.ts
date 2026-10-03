@@ -1,6 +1,26 @@
 import type { NextFunction, Request, Response } from "express";
 import { db } from "../config/firebase.js";
 
+interface CacheEntry {
+  granted: boolean;
+  timestamp: number;
+}
+
+const accessCache = new Map<string, CacheEntry>();
+const ACCESS_CACHE_TTL_MS = 30 * 1000; // 30 seconds TTL
+
+export function invalidateHostelAccessCache(hostelId?: string, userId?: string) {
+  if (hostelId || userId) {
+    for (const key of accessCache.keys()) {
+      if ((hostelId && key.includes(hostelId)) || (userId && key.includes(userId))) {
+        accessCache.delete(key);
+      }
+    }
+  } else {
+    accessCache.clear();
+  }
+}
+
 export async function requireHostelAccess(
   req: Request,
   res: Response,
@@ -19,26 +39,16 @@ export async function requireHostelAccess(
       return;
     }
 
-    // SUPER ADMIN
-    // Full platform access to all hostels
-    if (req.authUser.role === "SUPER_ADMIN") {
-      const hostelSnapshot = await db
-        .collection("hostels")
-        .doc(hostelId)
-        .get();
-
-      if (!hostelSnapshot.exists) {
-        res.status(404).json({ message: "Hostel not found" });
-        return;
-      }
-
+    const cacheKey = `${req.authUser.id}_${req.authUser.role}_${hostelId}`;
+    const cached = accessCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < ACCESS_CACHE_TTL_MS && cached.granted) {
       next();
       return;
     }
 
-    // ADMIN
-    // Can access hostels they own or are assigned to
-    if (req.authUser.role === "ADMIN") {
+    // SUPER ADMIN & ADMIN
+    // Full platform access to all hostels ("admin is only the superadmin")
+    if (req.authUser.role === "SUPER_ADMIN" || req.authUser.role === "ADMIN") {
       const hostelSnapshot = await db
         .collection("hostels")
         .doc(hostelId)
@@ -49,41 +59,8 @@ export async function requireHostelAccess(
         return;
       }
 
-      const hostelData = hostelSnapshot.data();
-
-      // Check if admin is the owner
-      if (hostelData?.ownerId === req.authUser.id) {
-        next();
-        return;
-      }
-
-      // Check hostelAdmins doc where doc ID is hostelId
-      const assignmentSnapshot = await db
-        .collection("hostelAdmins")
-        .doc(hostelId)
-        .get();
-
-      if (assignmentSnapshot.exists && assignmentSnapshot.data()?.adminId === req.authUser.id) {
-        next();
-        return;
-      }
-
-      // Check hostelAdmins collection query
-      const assignmentQuery = await db
-        .collection("hostelAdmins")
-        .where("hostelId", "==", hostelId)
-        .where("adminId", "==", req.authUser.id)
-        .limit(1)
-        .get();
-
-      if (!assignmentQuery.empty) {
-        next();
-        return;
-      }
-
-      res.status(403).json({
-        message: "You do not have access to this hostel",
-      });
+      accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
+      next();
       return;
     }
 
@@ -105,6 +82,7 @@ export async function requireHostelAccess(
         return;
       }
 
+      accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
       next();
       return;
     }
@@ -117,6 +95,7 @@ export async function requireHostelAccess(
         : [];
 
       if (userHostelIds.includes(hostelId)) {
+        accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
         next();
         return;
       }
@@ -129,6 +108,7 @@ export async function requireHostelAccess(
         .get();
 
       if (!repairPersonSnapshot.empty) {
+        accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
         next();
         return;
       }

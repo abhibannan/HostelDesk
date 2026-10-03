@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
 import { Fee, Hostel, Renter } from "../types";
 import { getName, getEmail, money, statusLabel } from "../utils/formatters";
 import { Header, EmptyState } from "../components/common";
@@ -57,16 +58,17 @@ interface FeesScreenProps {
   onMarkOverdue?: () => void;
 }
 
-function FeeDetail({ label, value }: { label: string; value: string }) {
+function FeeDetail({ label, value, colors }: { label: string; value: string; colors: any }) {
   return (
     <View style={styles.feeDetailItem}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+      <Text style={[styles.detailLabel, { color: colors.secondary }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: colors.text }]}>{value}</Text>
     </View>
   );
 }
 
 export function FeesScreen(props: FeesScreenProps) {
+  const { colors, isDark } = useTheme();
   const {
     fees,
     renters,
@@ -108,48 +110,48 @@ export function FeesScreen(props: FeesScreenProps) {
   const unpaidCount = fees.filter((f) => String(f.status).toUpperCase() !== "PAID").length;
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
         <Header
           title="Fees"
           subtitle={selectedHostel?.name || "Select a hostel"}
           onRefresh={onRefresh}
         />
-        <View style={styles.infoBar}>
-          <Ionicons name="information-circle" size={16} color={COLORS.primary} />
-          <Text style={styles.infoBarText}>
+        <View style={[styles.infoBar, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}>
+          <Ionicons name="information-circle" size={16} color={colors.primary} />
+          <Text style={[styles.infoBarText, { color: colors.primaryDark }]}>
             Track resident rental dues, schedule recurring charges, and manage payments.
           </Text>
         </View>
         <View style={styles.actionRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.sectionTitle}>Fee records</Text>
-            <Text style={styles.sectionSubtitle}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Fee records</Text>
+            <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
               {fees.length} fee{fees.length === 1 ? "" : "s"} · {unpaidCount} unpaid
             </Text>
           </View>
           <View style={styles.headerBtnGroup}>
             {onGenerateMonthlyFees && (
               <TouchableOpacity
-                style={styles.generateButton}
+                style={[styles.generateButton, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
                 onPress={() => setShowGenerateModal?.(true)}
               >
-                <Ionicons name="flash-outline" size={14} color={COLORS.primary} />
-                <Text style={styles.generateButtonText}>Auto-Generate</Text>
+                <Ionicons name="flash-outline" size={14} color={colors.primary} />
+                <Text style={[styles.generateButtonText, { color: colors.primary }]}>Auto-Generate</Text>
               </TouchableOpacity>
             )}
 
             {unpaidCount > 0 ? (
               <TouchableOpacity
-                style={styles.remindAllButton}
+                style={[styles.remindAllButton, { backgroundColor: colors.warningLight, borderColor: colors.border }]}
                 onPress={() => onRemindAllUnpaid?.()}
               >
-                <Ionicons name="notifications-outline" size={14} color="#B45309" />
-                <Text style={styles.remindAllButtonText}>Remind ({unpaidCount})</Text>
+                <Ionicons name="notifications-outline" size={14} color={colors.warning} />
+                <Text style={[styles.remindAllButtonText, { color: colors.warning }]}>Remind ({unpaidCount})</Text>
               </TouchableOpacity>
             ) : null}
 
-            <TouchableOpacity style={styles.smallPrimaryButton} onPress={onOpenFeeModal}>
+            <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenFeeModal}>
               <Ionicons name="add" size={18} color="#FFFFFF" />
               <Text style={styles.smallPrimaryText}>Add Fee</Text>
             </TouchableOpacity>
@@ -168,21 +170,30 @@ export function FeesScreen(props: FeesScreenProps) {
             const paid = Number(fee.paidAmount || 0);
             const remaining = Math.max(Number(fee.amount || 0) - paid, 0);
             const status = String(fee.status || "PENDING").toUpperCase();
-            const color =
-              status === "PAID"
-                ? COLORS.success
-                : status === "OVERDUE"
-                  ? COLORS.danger
-                  : status === "PARTIALLY_PAID"
-                    ? COLORS.warning
-                    : COLORS.primary;
+            const isPaid = status === "PAID";
+            const isOverdue = status === "OVERDUE";
+            const isPartial = status === "PARTIALLY_PAID";
+            const badgeBg = isPaid
+              ? colors.successLight
+              : isOverdue
+                ? colors.dangerLight
+                : isPartial
+                  ? colors.warningLight
+                  : colors.primaryLight;
+            const badgeFg = isPaid
+              ? colors.success
+              : isOverdue
+                ? colors.danger
+                : isPartial
+                  ? colors.warning
+                  : colors.primary;
 
             return (
-              <View key={fee.id} style={styles.feeCard}>
+              <View key={fee.id} style={[styles.feeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.feeTopRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.itemTitle}>{renter ? getName(renter) : "Renter"}</Text>
-                    <Text style={styles.itemSubtitle}>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>{renter ? getName(renter) : "Renter"}</Text>
+                    <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
                       {fee.month} · Due {fee.dueDate}
                     </Text>
                   </View>
@@ -190,49 +201,42 @@ export function FeesScreen(props: FeesScreenProps) {
                     style={[
                       styles.statusBadge,
                       {
-                        backgroundColor:
-                          color === COLORS.success
-                            ? COLORS.successLight
-                            : color === COLORS.danger
-                              ? COLORS.dangerLight
-                              : color === COLORS.warning
-                                ? COLORS.warningLight
-                                : COLORS.primaryLight,
+                        backgroundColor: badgeBg,
                       },
                     ]}
                   >
-                    <Text style={[styles.statusBadgeText, { color }]}>{statusLabel(status)}</Text>
+                    <Text style={[styles.statusBadgeText, { color: badgeFg }]}>{statusLabel(status)}</Text>
                   </View>
                 </View>
 
-                <View style={styles.feeDetailsRow}>
-                  <FeeDetail label="Amount" value={money(fee.amount)} />
-                  <FeeDetail label="Paid" value={money(paid)} />
-                  <FeeDetail label="Remaining" value={money(remaining)} />
+                <View style={[styles.feeDetailsRow, { borderTopColor: colors.border }]}>
+                  <FeeDetail label="Amount" value={money(fee.amount)} colors={colors} />
+                  <FeeDetail label="Paid" value={money(paid)} colors={colors} />
+                  <FeeDetail label="Remaining" value={money(remaining)} colors={colors} />
                 </View>
 
                 <View style={styles.feeCardFooter}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
                     {fee.description ? (
-                      <Text style={styles.feeDescription}>{fee.description}</Text>
+                      <Text style={[styles.feeDescription, { color: colors.secondary }]}>{fee.description}</Text>
                     ) : null}
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     {remaining > 0 ? (
                       <TouchableOpacity
-                        style={styles.cardRemindBtn}
+                        style={[styles.cardRemindBtn, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
                         onPress={() => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter")}
                       >
-                        <Ionicons name="notifications-outline" size={14} color={COLORS.primary} />
-                        <Text style={styles.cardRemindBtnText}>Remind</Text>
+                        <Ionicons name="notifications-outline" size={14} color={colors.primary} />
+                        <Text style={[styles.cardRemindBtnText, { color: colors.primary }]}>Remind</Text>
                       </TouchableOpacity>
                     ) : null}
                     {onDeleteFee ? (
                       <TouchableOpacity
-                        style={styles.cardDeleteBtn}
+                        style={[styles.cardDeleteBtn, { backgroundColor: colors.dangerLight }]}
                         onPress={() => onDeleteFee(fee.id)}
                       >
-                        <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                        <Ionicons name="trash-outline" size={15} color={colors.danger} />
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -255,74 +259,74 @@ export function FeesScreen(props: FeesScreenProps) {
             style={styles.modalKeyboard}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
-            <View style={styles.modalCardLarge}>
+            <View style={[styles.modalCardLarge, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                 <View style={styles.modalHeader}>
                   <View>
-                    <Text style={styles.modalTitle}>Add Fee</Text>
-                    <Text style={styles.modalSubtitle}>
+                    <Text style={[styles.modalTitle, { color: colors.text }]}>Add Fee</Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>
                       Assign a fee schedule to an active resident.
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={styles.closeButton}
+                    style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
                     onPress={() => setShowFeeModal(false)}
                   >
-                    <Ionicons name="close" size={22} color={COLORS.secondary} />
+                    <Ionicons name="close" size={22} color={colors.secondary} />
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.label}>Active renter *</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Active renter *</Text>
                 <TouchableOpacity
-                  style={styles.selector}
+                  style={[styles.selector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                   onPress={() => setFeeRenterPickerOpen(true)}
                 >
-                  <Text style={[styles.selectorText, !feeRenter && { color: "#94A3B8" }]}>
+                  <Text style={[styles.selectorText, { color: feeRenter ? colors.text : colors.secondary }]}>
                     {feeRenter ? getName(feeRenter) : "Select active renter"}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color={COLORS.secondary} />
+                  <Ionicons name="chevron-down" size={20} color={colors.secondary} />
                 </TouchableOpacity>
 
-                <Text style={styles.label}>Month *</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Month *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
                   value={feeMonth}
                   onChangeText={setFeeMonth}
                   placeholder="YYYY-MM"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.secondary}
                 />
 
-                <Text style={styles.label}>Amount *</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Amount *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
                   value={feeAmount}
                   onChangeText={setFeeAmount}
                   placeholder="Example: 8000"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.secondary}
                   keyboardType="decimal-pad"
                 />
 
-                <Text style={styles.label}>Due date *</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Due date *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
                   value={feeDueDate}
                   onChangeText={setFeeDueDate}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.secondary}
                 />
 
-                <Text style={styles.label}>Description</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Description</Text>
                 <TextInput
-                  style={[styles.input, { minHeight: 90, textAlignVertical: "top" }]}
+                  style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text, minHeight: 90, textAlignVertical: "top" }]}
                   value={feeDescription}
                   onChangeText={setFeeDescription}
                   placeholder="Optional description"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.secondary}
                   multiline
                 />
 
                 <TouchableOpacity
-                  style={styles.primaryButton}
+                  style={[styles.primaryButton, { backgroundColor: colors.primary }]}
                   disabled={feeSaving}
                   onPress={onAddFee}
                 >
@@ -349,17 +353,17 @@ export function FeesScreen(props: FeesScreenProps) {
         onRequestClose={() => setFeeRenterPickerOpen(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.pickerCard}>
+          <View style={[styles.pickerCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Select renter</Text>
-                <Text style={styles.modalSubtitle}>Only active renters can receive a new fee.</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Select renter</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>Only active renters can receive a new fee.</Text>
               </View>
               <TouchableOpacity
-                style={styles.closeButton}
+                style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
                 onPress={() => setFeeRenterPickerOpen(false)}
               >
-                <Ionicons name="close" size={22} color={COLORS.secondary} />
+                <Ionicons name="close" size={22} color={colors.secondary} />
               </TouchableOpacity>
             </View>
             {activeRenters.length === 0 ? (
@@ -372,21 +376,25 @@ export function FeesScreen(props: FeesScreenProps) {
               activeRenters.map((renter) => (
                 <Pressable
                   key={renter.id}
-                  style={[styles.pickerRow, renter.id === feeRenterId && styles.pickerSelected]}
+                  style={[
+                    styles.pickerRow,
+                    { borderBottomColor: colors.border },
+                    renter.id === feeRenterId && [styles.pickerSelected, { backgroundColor: colors.primaryLight }],
+                  ]}
                   onPress={() => {
                     setFeeRenterId(renter.id);
                     setFeeRenterPickerOpen(false);
                   }}
                 >
-                  <View style={styles.pickerIcon}>
-                    <Ionicons name="person-outline" size={20} color={COLORS.primary} />
+                  <View style={[styles.pickerIcon, { backgroundColor: colors.primaryLight }]}>
+                    <Ionicons name="person-outline" size={20} color={colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.itemTitle}>{getName(renter)}</Text>
-                    <Text style={styles.itemSubtitle}>{getEmail(renter) || "No email"}</Text>
+                    <Text style={[styles.itemTitle, { color: colors.text }]}>{getName(renter)}</Text>
+                    <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>{getEmail(renter) || "No email"}</Text>
                   </View>
                   {renter.id === feeRenterId ? (
-                    <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} />
+                    <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
                   ) : null}
                 </Pressable>
               ))
@@ -407,42 +415,42 @@ export function FeesScreen(props: FeesScreenProps) {
             style={styles.modalKeyboard}
             behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
-            <View style={styles.modalCardLarge}>
+            <View style={[styles.modalCardLarge, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, paddingRight: 10 }}>
-                  <Text style={styles.modalTitle}>Auto-Generate Rent</Text>
-                  <Text style={styles.modalSubtitle}>
+                  <Text style={[styles.modalTitle, { color: colors.text }]}>Auto-Generate Rent</Text>
+                  <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>
                     Automatically create monthly rent fees for all active residents based on their assigned rent amount.
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.closeButton}
+                  style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
                   onPress={() => !generateSaving && setShowGenerateModal?.(false)}
                 >
-                  <Ionicons name="close" size={22} color={COLORS.secondary} />
+                  <Ionicons name="close" size={22} color={colors.secondary} />
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>Billing Month (YYYY-MM)</Text>
+              <Text style={[styles.label, { color: colors.text }]}>Billing Month (YYYY-MM)</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
                 value={generateMonth}
                 onChangeText={setGenerateMonth}
                 placeholder="2026-09"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.secondary}
               />
 
-              <Text style={styles.label}>Payment Due Date</Text>
+              <Text style={[styles.label, { color: colors.text }]}>Payment Due Date</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]}
                 value={generateDueDate}
                 onChangeText={setGenerateDueDate}
                 placeholder="2026-09-10"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.secondary}
               />
 
               <TouchableOpacity
-                style={[styles.primaryButton, { marginTop: 22 }]}
+                style={[styles.primaryButton, { backgroundColor: colors.primary, marginTop: 22 }]}
                 disabled={generateSaving}
                 onPress={onGenerateMonthlyFees}
               >

@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { COLORS, DARK_COLORS, LIGHT_COLORS, ThemeMode } from "../constants/theme";
+import { useTheme } from "../contexts/ThemeContext";
 import { API_URL, parseJsonResponse } from "../services/api";
 import { Fee, Hostel, Notification, Payment, Repair, Renter, User } from "../types";
 import { money, today } from "../utils/formatters";
@@ -66,8 +67,86 @@ export function RenterPortalScreen({
   onSubmitRepair,
 }: RenterPortalScreenProps) {
   const [activeTab, setActiveTab] = useState<"details" | "fees" | "repairs" | "notices" | "settings">("details");
-  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
-  const theme = themeMode === "dark" ? DARK_COLORS : LIGHT_COLORS;
+  const { colors: theme, themeMode, setTheme, isDark } = useTheme();
+
+  // Automatically clean up resolved maintenance notifications from the renter's feed
+  React.useEffect(() => {
+    const resolvedRepairIds = new Set(
+      repairs
+        .filter((r) => String(r.status).toUpperCase() === "RESOLVED")
+        .map((r) => r.id),
+    );
+
+    const staleMaintenanceNotifs = notifications.filter((n) => {
+      if (n.entityType === "REPAIR" && n.entityId && resolvedRepairIds.has(n.entityId)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (staleMaintenanceNotifs.length > 0) {
+      staleMaintenanceNotifs.forEach((n) => {
+        if (request) {
+          request(`/notifications/${n.id}`, { method: "DELETE" }).catch(() => {});
+        } else if (token) {
+          fetch(`${API_URL}/notifications/${n.id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        }
+      });
+    }
+  }, [notifications, repairs, request, token]);
+
+  const visibleNotifications = notifications.filter((notif) => {
+    if (notif.entityType === "REPAIR" && notif.entityId) {
+      const isResolved = repairs.some(
+        (r) => r.id === notif.entityId && String(r.status).toUpperCase() === "RESOLVED",
+      );
+      if (isResolved) return false;
+    }
+    return true;
+  });
+
+  async function handleDeletePaymentProof(paymentId: string) {
+    const hostelId = hostel?.id || renter?.hostelId;
+    if (!hostelId) {
+      Alert.alert("Error", "Hostel profile missing.");
+      return;
+    }
+
+    const executeDelete = async () => {
+      try {
+        if (request) {
+          await request(`/hostels/${hostelId}/payments/${paymentId}`, {
+            method: "DELETE",
+          });
+        } else if (token) {
+          const res = await fetch(`${API_URL}/hostels/${hostelId}/payments/${paymentId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            const data = await parseJsonResponse(res);
+            throw new Error(String((data as any)?.message || "Failed to delete payment proof."));
+          }
+        }
+        await onRefresh();
+        Alert.alert("Withdrawn", "Your payment proof submission has been removed. You can now submit a fresh screenshot.");
+      } catch (err) {
+        Alert.alert("Error", err instanceof Error ? err.message : "Failed to withdraw payment proof.");
+      }
+    };
+
+    Alert.alert(
+      "Withdraw Payment Proof",
+      "Are you sure you want to withdraw and delete this payment proof submission? You will be able to submit a fresh screenshot.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Withdraw", style: "destructive", onPress: () => void executeDelete() },
+      ],
+    );
+  }
 
   // Password Management State
   const [newPassword, setNewPassword] = useState("");
@@ -384,10 +463,10 @@ export function RenterPortalScreen({
         <View style={styles.topActions}>
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: theme.primaryLight }]}
-            onPress={() => setThemeMode((m) => (m === "light" ? "dark" : "light"))}
+            onPress={() => setTheme(isDark ? "light" : "dark")}
           >
             <Ionicons
-              name={themeMode === "light" ? "moon-outline" : "sunny-outline"}
+              name={isDark ? "sunny-outline" : "moon-outline"}
               size={19}
               color={theme.primary}
             />
@@ -828,15 +907,35 @@ export function RenterPortalScreen({
                       </View>
                     ) : null}
 
-                    {p.proofUrl ? (
-                      <TouchableOpacity
-                        style={styles.viewProofBtn}
-                        onPress={() => setPreviewImageUrl(p.proofUrl || null)}
-                      >
-                        <Ionicons name="image-outline" size={16} color={COLORS.primary} />
-                        <Text style={styles.viewProofBtnText}>View Receipt / Screenshot</Text>
-                      </TouchableOpacity>
-                    ) : null}
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                      {p.proofUrl ? (
+                        <TouchableOpacity
+                          style={[styles.viewProofBtn, { flex: 1, marginTop: 0 }]}
+                          onPress={() => setPreviewImageUrl(p.proofUrl || null)}
+                        >
+                          <Ionicons name="image-outline" size={16} color={theme.primary} />
+                          <Text style={[styles.viewProofBtnText, { color: theme.primary }]}>View Proof</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {!isApproved && (
+                        <TouchableOpacity
+                          style={[
+                            styles.viewProofBtn,
+                            {
+                              flex: p.proofUrl ? 0.75 : 1,
+                              marginTop: 0,
+                              borderColor: theme.danger,
+                              backgroundColor: theme.dangerLight,
+                            },
+                          ]}
+                          onPress={() => handleDeletePaymentProof(p.id)}
+                        >
+                          <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                          <Text style={[styles.viewProofBtnText, { color: theme.danger }]}>Withdraw</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 );
               })
@@ -948,14 +1047,14 @@ export function RenterPortalScreen({
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <View style={{ flex: 1, marginRight: 8 }}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                  Notifications {notifications.length > 0 ? `(${notifications.length})` : ""}
+                  Notifications {visibleNotifications.length > 0 ? `(${visibleNotifications.length})` : ""}
                 </Text>
                 <Text style={[styles.sectionSubtitle, { color: theme.secondary }]}>
                   View all previous announcements, fee reminders, and updates
                 </Text>
               </View>
 
-              {notifications.length > 0 ? (
+              {visibleNotifications.length > 0 ? (
                 <TouchableOpacity
                   style={{
                     flexDirection: "row",
@@ -974,14 +1073,14 @@ export function RenterPortalScreen({
               ) : null}
             </View>
 
-            {notifications.length === 0 ? (
+            {visibleNotifications.length === 0 ? (
               <EmptyState
                 icon="notifications-off-outline"
                 title="No Notifications"
                 description="All your previous notifications and announcements will appear here. Currently you are all caught up!"
               />
             ) : (
-              [...notifications]
+              [...visibleNotifications]
                 .sort((a, b) =>
                   String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
                 )
@@ -1079,29 +1178,29 @@ export function RenterPortalScreen({
                   style={[
                     styles.themeOptionBtn,
                     {
-                      borderColor: themeMode === "light" ? theme.primary : theme.border,
-                      backgroundColor: themeMode === "light" ? theme.primaryLight : theme.card,
+                      borderColor: !isDark ? theme.primary : theme.border,
+                      backgroundColor: !isDark ? theme.primaryLight : theme.card,
                     },
                   ]}
-                  onPress={() => setThemeMode("light")}
+                  onPress={() => setTheme("light")}
                 >
                   <Ionicons
                     name="sunny"
                     size={22}
-                    color={themeMode === "light" ? theme.primary : theme.secondary}
+                    color={!isDark ? theme.primary : theme.secondary}
                   />
                   <Text
                     style={[
                       styles.themeOptionText,
                       {
-                        color: themeMode === "light" ? theme.primary : theme.secondary,
-                        fontWeight: themeMode === "light" ? "700" : "500",
+                        color: !isDark ? theme.primary : theme.secondary,
+                        fontWeight: !isDark ? "700" : "500",
                       },
                     ]}
                   >
                     Light Mode
                   </Text>
-                  {themeMode === "light" ? (
+                  {!isDark ? (
                     <Ionicons name="checkmark-circle" size={16} color={theme.primary} />
                   ) : null}
                 </TouchableOpacity>
@@ -1110,29 +1209,29 @@ export function RenterPortalScreen({
                   style={[
                     styles.themeOptionBtn,
                     {
-                      borderColor: themeMode === "dark" ? theme.primary : theme.border,
-                      backgroundColor: themeMode === "dark" ? theme.primaryLight : theme.card,
+                      borderColor: isDark ? theme.primary : theme.border,
+                      backgroundColor: isDark ? theme.primaryLight : theme.card,
                     },
                   ]}
-                  onPress={() => setThemeMode("dark")}
+                  onPress={() => setTheme("dark")}
                 >
                   <Ionicons
                     name="moon"
                     size={22}
-                    color={themeMode === "dark" ? theme.primary : theme.secondary}
+                    color={isDark ? theme.primary : theme.secondary}
                   />
                   <Text
                     style={[
                       styles.themeOptionText,
                       {
-                        color: themeMode === "dark" ? theme.primary : theme.secondary,
-                        fontWeight: themeMode === "dark" ? "700" : "500",
+                        color: isDark ? theme.primary : theme.secondary,
+                        fontWeight: isDark ? "700" : "500",
                       },
                     ]}
                   >
                     Dark Mode
                   </Text>
-                  {themeMode === "dark" ? (
+                  {isDark ? (
                     <Ionicons name="checkmark-circle" size={16} color={theme.primary} />
                   ) : null}
                 </TouchableOpacity>

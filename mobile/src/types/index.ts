@@ -6,6 +6,10 @@ export type Hostel = {
   address?: string;
   city?: string;
   state?: string;
+  type?: string;
+  contactPhone?: string;
+  pincode?: string;
+  totalRooms?: number;
 };
 
 export type Room = {
@@ -72,6 +76,7 @@ export type Fee = {
 
 export type Payment = {
   id: string;
+  hostelId?: string;
   renterId?: string;
   feeId?: string;
   amount?: number;

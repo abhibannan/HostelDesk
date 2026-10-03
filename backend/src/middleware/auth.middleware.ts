@@ -3,6 +3,28 @@ import type { NextFunction, Request, Response } from "express";
 import { firebaseAuth, db } from "../config/firebase.js";
 import type { AuthUser } from "../types/auth.js";
 
+interface CachedAuth {
+  firebaseUser: any;
+  authUser: AuthUser;
+  cachedAt: number;
+}
+
+const authCache = new Map<string, CachedAuth>();
+const AUTH_CACHE_TTL_MS = 45 * 1000; // 45 seconds TTL
+const MAX_AUTH_CACHE_SIZE = 1000;
+
+export function invalidateAuthCache(userId?: string) {
+  if (userId) {
+    for (const [token, entry] of authCache.entries()) {
+      if (entry.authUser.id === userId || entry.firebaseUser.uid === userId) {
+        authCache.delete(token);
+      }
+    }
+  } else {
+    authCache.clear();
+  }
+}
+
 export async function requireAuth(
   req: Request,
   res: Response,
@@ -23,6 +45,15 @@ export async function requireAuth(
     res.status(401).json({
       message: "Missing Firebase ID token",
     });
+    return;
+  }
+
+  // Fast path: in-memory cached authentication
+  const cached = authCache.get(token);
+  if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) {
+    req.firebaseUser = cached.firebaseUser;
+    req.authUser = cached.authUser;
+    next();
     return;
   }
 
@@ -96,6 +127,17 @@ export async function requireAuth(
     }
 
     req.authUser = authUser;
+
+    // Cache the verified auth
+    if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
+      const firstKey = authCache.keys().next().value;
+      if (firstKey) authCache.delete(firstKey);
+    }
+    authCache.set(token, {
+      firebaseUser,
+      authUser,
+      cachedAt: Date.now(),
+    });
 
     next();
   } catch (error) {
