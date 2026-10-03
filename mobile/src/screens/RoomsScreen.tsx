@@ -142,20 +142,30 @@ export function RoomsScreen({
   const [refreshing, setRefreshing] = useState(false);
 
   // ── Derived occupant counts from renters list ─────────────────────────────
+  const currentHostelId = selectedHostel?.id || selectedHostelId;
+  const currentHostelRooms = React.useMemo(() => {
+    return rooms.filter((r) => !currentHostelId || !r.hostelId || r.hostelId === currentHostelId);
+  }, [rooms, currentHostelId]);
+
+  const currentHostelRenters = React.useMemo(() => {
+    return renters.filter((r) => !currentHostelId || !r.hostelId || r.hostelId === currentHostelId);
+  }, [renters, currentHostelId]);
+
+  // ── Derived occupant counts from renters list ─────────────────────────────
   const occupantCountMap = React.useMemo(() => {
     const map: Record<string, number> = {};
-    for (const r of renters) {
+    for (const r of currentHostelRenters) {
       if (r.roomId && String(r.status ?? "ACTIVE").toUpperCase() === "ACTIVE") {
         map[r.roomId] = (map[r.roomId] ?? 0) + 1;
       }
     }
     return map;
-  }, [renters]);
+  }, [currentHostelRenters]);
 
   // ── Combine backend occupants with local renters list for instant display ───
   const currentRoomOccupants = React.useMemo(() => {
     if (!selectedRoom) return [];
-    const matchingRenters = renters.filter(
+    const matchingRenters = currentHostelRenters.filter(
       (r) =>
         r.roomId === selectedRoom.id &&
         String(r.status ?? "ACTIVE").toUpperCase() === "ACTIVE"
@@ -290,11 +300,11 @@ export function RoomsScreen({
   }
 
   // ── Grid stats & bed capacity ─────────────────────────────────────────────
-  const totalBeds = rooms.reduce((sum, r) => sum + (Number(r.maxOccupants) || 2), 0);
+  const totalBeds = currentHostelRooms.reduce((sum, r) => sum + (Number(r.maxOccupants) || 2), 0);
   const totalOccupants = Object.values(occupantCountMap).reduce((sum, count) => sum + count, 0);
   const availableBeds = Math.max(0, totalBeds - totalOccupants);
 
-  const transferableRooms = rooms.filter((r) => r.id !== selectedRoom?.id);
+  const transferableRooms = currentHostelRooms.filter((r) => r.id !== selectedRoom?.id);
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -311,7 +321,7 @@ export function RoomsScreen({
           <View style={[styles.statChip, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
             <Ionicons name="grid-outline" size={15} color={colors.primary} />
             <Text style={[styles.statChipText, { color: colors.text }]}>
-              {rooms.length} Rooms
+              {currentHostelRooms.length} Rooms
             </Text>
           </View>
           <View style={[styles.statChip, { backgroundColor: colors.successLight, borderColor: isDark ? "rgba(34,197,94,0.3)" : "#BBF7D0", borderWidth: 1 }]}>
@@ -338,7 +348,7 @@ export function RoomsScreen({
         </View>
 
         {/* Room grid */}
-        {rooms.length === 0 ? (
+        {currentHostelRooms.length === 0 ? (
           <EmptyState
             icon="grid-outline"
             title="No rooms found"
@@ -346,7 +356,7 @@ export function RoomsScreen({
           />
         ) : (
           <View style={styles.roomGrid}>
-            {rooms.map((room) => {
+            {currentHostelRooms.map((room) => {
               const count = occupantCountMap[room.id] ?? 0;
               const max = room.maxOccupants ?? 0;
               const statusInfo = roomStatusColor(room, count, colors);

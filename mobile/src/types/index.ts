@@ -14,6 +14,7 @@ export type Hostel = {
 
 export type Room = {
   id: string;
+  hostelId?: string;
   roomNumber: string;
   floor?: string | number;
   status?: string;
@@ -65,6 +66,7 @@ export type Renter = {
 
 export type Fee = {
   id: string;
+  hostelId?: string;
   renterId: string;
   month: string;
   amount: number;

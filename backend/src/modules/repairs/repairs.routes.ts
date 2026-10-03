@@ -574,23 +574,54 @@ router.delete(
   },
 );
 
-// List repair persons for hostel
+// List repair persons (Common for any hostel across the portfolio)
 router.get(
   "/:hostelId/repair-persons",
   requireAuth,
   requireHostelAccess,
   async (req, res, next) => {
     try {
-      const hostelId = req.params.hostelId;
-      const snapshot = await db
-        .collection("repairPersons")
-        .where("hostelId", "==", hostelId)
+      const seen = new Set<string>();
+      const repairPersons: any[] = [];
+
+      // 1. Fetch from repairPersons collection
+      const rpSnapshot = await db.collection("repairPersons").get();
+      rpSnapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.status === "INACTIVE") return;
+        const key = data.email?.toLowerCase() || data.userId || doc.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          repairPersons.push({
+            id: doc.id,
+            ...data,
+          });
+        }
+      });
+
+      // 2. Also ensure any users with role REPAIR_PERSON are included
+      const usersSnap = await db
+        .collection("users")
+        .where("role", "==", "REPAIR_PERSON")
         .get();
 
-      const repairPersons = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      usersSnap.docs.forEach((doc) => {
+        const u = doc.data();
+        if (u.status === "INACTIVE") return;
+        const key = u.email?.toLowerCase() || doc.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          repairPersons.push({
+            id: doc.id,
+            userId: doc.id,
+            name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email,
+            email: u.email,
+            phone: u.phone || "",
+            specialty: u.specialty || "General Maintenance",
+            status: "ACTIVE",
+          });
+        }
+      });
 
       res.json({ repairPersons });
     } catch (error) {
@@ -793,7 +824,7 @@ router.patch(
       const rpRef = db.collection("repairPersons").doc(personId);
       const rpDoc = await rpRef.get();
 
-      if (!rpDoc.exists || rpDoc.data()?.hostelId !== hostelId) {
+      if (!rpDoc.exists) {
         res.status(404).json({ message: "Repair person not found" });
         return;
       }
@@ -863,7 +894,7 @@ router.delete(
       const rpRef = db.collection("repairPersons").doc(personId);
       const rpDoc = await rpRef.get();
 
-      if (!rpDoc.exists || rpDoc.data()?.hostelId !== hostelId) {
+      if (!rpDoc.exists) {
         res.status(404).json({ message: "Repair person not found" });
         return;
       }

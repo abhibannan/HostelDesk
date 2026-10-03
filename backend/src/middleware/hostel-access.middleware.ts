@@ -88,34 +88,10 @@ export async function requireHostelAccess(
     }
 
     // REPAIR_PERSON
-    // Can access hostels they are assigned to
+    // Technicians are common across all hostels in the portfolio
     if (req.authUser.role === "REPAIR_PERSON") {
-      const userHostelIds = Array.isArray(req.authUser.hostelIds)
-        ? req.authUser.hostelIds
-        : [];
-
-      if (userHostelIds.includes(hostelId)) {
-        accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
-        next();
-        return;
-      }
-
-      const repairPersonSnapshot = await db
-        .collection("repairPersons")
-        .where("hostelId", "==", hostelId)
-        .where("userId", "==", req.authUser.id)
-        .limit(1)
-        .get();
-
-      if (!repairPersonSnapshot.empty) {
-        accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
-        next();
-        return;
-      }
-
-      res.status(403).json({
-        message: "You do not have access to this hostel",
-      });
+      accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });
+      next();
       return;
     }
 

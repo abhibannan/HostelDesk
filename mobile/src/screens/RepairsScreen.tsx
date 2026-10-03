@@ -184,23 +184,31 @@ export function RepairsScreen({
     "Deep Cleaning",
   ];
 
-  const filteredRepairs = repairs.filter((r) => {
+  const currentHostelRepairs = selectedHostel?.id
+    ? repairs.filter((r) => !r.hostelId || r.hostelId === selectedHostel.id)
+    : repairs;
+
+  const currentHostelMaintenance = selectedHostel?.id
+    ? maintenanceTasks.filter((m) => !m.hostelId || m.hostelId === selectedHostel.id)
+    : maintenanceTasks;
+
+  const filteredRepairs = currentHostelRepairs.filter((r) => {
     if (filterStatus === "ALL") return true;
     return (r.status || "SUBMITTED").toUpperCase() === filterStatus;
   });
 
-  const filteredMaintenance = maintenanceTasks.filter((m) => {
+  const filteredMaintenance = currentHostelMaintenance.filter((m) => {
     if (maintenanceFilter === "ALL") return true;
     return (m.status || "SCHEDULED").toUpperCase() === maintenanceFilter;
   });
 
-  const countSubmitted = repairs.filter((r) => (r.status || "SUBMITTED") === "SUBMITTED").length;
-  const countInProgress = repairs.filter((r) => r.status === "IN_PROGRESS").length;
-  const countResolved = repairs.filter((r) => r.status === "RESOLVED").length;
+  const countSubmitted = currentHostelRepairs.filter((r) => (r.status || "SUBMITTED") === "SUBMITTED").length;
+  const countInProgress = currentHostelRepairs.filter((r) => r.status === "IN_PROGRESS").length;
+  const countResolved = currentHostelRepairs.filter((r) => r.status === "RESOLVED").length;
 
-  const countScheduledMaint = maintenanceTasks.filter((m) => (m.status || "SCHEDULED") === "SCHEDULED").length;
-  const countInProgressMaint = maintenanceTasks.filter((m) => m.status === "IN_PROGRESS").length;
-  const countCompletedMaint = maintenanceTasks.filter((m) => m.status === "COMPLETED").length;
+  const countScheduledMaint = currentHostelMaintenance.filter((m) => (m.status || "SCHEDULED") === "SCHEDULED").length;
+  const countInProgressMaint = currentHostelMaintenance.filter((m) => m.status === "IN_PROGRESS").length;
+  const countCompletedMaint = currentHostelMaintenance.filter((m) => m.status === "COMPLETED").length;
 
   function getPriorityColor(priority?: string) {
     switch (priority) {

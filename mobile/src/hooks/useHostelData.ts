@@ -56,7 +56,7 @@ export function useHostelData(): HostelDataState & HostelDataActions {
   const [token, setToken] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard>(EMPTY_DASHBOARD);
   const [hostels, setHostels] = useState<Hostel[]>([]);
-  const [selectedHostelId, setSelectedHostelId] = useState("");
+  const [selectedHostelId, setSelectedHostelIdState] = useState("");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [renters, setRenters] = useState<Renter[]>([]);
   const [fees, setFees] = useState<Fee[]>([]);
@@ -67,12 +67,32 @@ export function useHostelData(): HostelDataState & HostelDataActions {
 
   const refreshBusy = useRef(false);
 
+  const setSelectedHostelId = useCallback((id: string) => {
+    setSelectedHostelIdState((prev) => {
+      if (prev !== id) {
+        // Immediately clear previous hostel data so Hostel A data never bleeds into Hostel B
+        setRooms([]);
+        setRenters([]);
+        setFees([]);
+        setPayments([]);
+        setRepairs([]);
+        setNotifications([]);
+        setDashboard(EMPTY_DASHBOARD);
+      }
+      return id;
+    });
+  }, []);
+
   const selectedHostel = hostels.find((h) => h.id === selectedHostelId);
   const activeRenters = renters.filter(
-    (r) => String(r.status || "ACTIVE").toUpperCase() === "ACTIVE",
+    (r) =>
+      String(r.status || "ACTIVE").toUpperCase() === "ACTIVE" &&
+      (!r.hostelId || !selectedHostelId || r.hostelId === selectedHostelId),
   );
   const activeRooms = rooms.filter(
-    (r) => String(r.status || "ACTIVE").toUpperCase() === "ACTIVE",
+    (r) =>
+      String(r.status || "ACTIVE").toUpperCase() === "ACTIVE" &&
+      (!r.hostelId || !selectedHostelId || r.hostelId === selectedHostelId),
   );
 
   const request = useCallback(
@@ -100,18 +120,23 @@ export function useHostelData(): HostelDataState & HostelDataActions {
     [token],
   );
 
-  const refreshDashboardOnly = useCallback(async () => {
-    if (!token) return;
-    try {
-      const resp = await fetch(`${API_URL}/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await jsonResponse(resp);
-      if (resp.ok) setDashboard(dashboardFrom(data));
-    } catch {
-      // Keep existing dashboard on transient failure
-    }
-  }, [token]);
+  const refreshDashboardOnly = useCallback(
+    async (targetHostelId?: string) => {
+      if (!token) return;
+      const hId = targetHostelId || selectedHostelId;
+      try {
+        const url = hId ? `${API_URL}/dashboard/${hId}` : `${API_URL}/dashboard`;
+        const resp = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await jsonResponse(resp);
+        if (resp.ok) setDashboard(dashboardFrom(data));
+      } catch {
+        // Keep existing dashboard on transient failure
+      }
+    },
+    [token, selectedHostelId],
+  );
 
   const refreshHostelData = useCallback(
     async (hostelId = selectedHostelId) => {
@@ -132,18 +157,37 @@ export function useHostelData(): HostelDataState & HostelDataActions {
               .then(jsonResponse)
               .catch(() => ({ notifications: [] })),
           ]);
-        setRooms(listFrom<Room>(roomData, "rooms"));
-        setRenters(listFrom<Renter>(renterData, "renters"));
-        setFees(listFrom<Fee>(feeData, "fees"));
-        setPayments(listFrom<Payment>(paymentData, "payments"));
-        setRepairs(listFrom<Repair>(repairData, "repairs"));
+
+        // Filter strictly to current hostelId to guarantee complete data isolation
+        const fetchedRooms = listFrom<Room>(roomData, "rooms").filter(
+          (r) => !r.hostelId || r.hostelId === hostelId,
+        );
+        const fetchedRenters = listFrom<Renter>(renterData, "renters").filter(
+          (r) => !r.hostelId || r.hostelId === hostelId,
+        );
+        const fetchedFees = listFrom<Fee>(feeData, "fees").filter(
+          (f) => !f.hostelId || f.hostelId === hostelId,
+        );
+        const fetchedPayments = listFrom<Payment>(paymentData, "payments").filter(
+          (p) => !p.hostelId || p.hostelId === hostelId,
+        );
+        const fetchedRepairs = listFrom<Repair>(repairData, "repairs").filter(
+          (rp) => !rp.hostelId || rp.hostelId === hostelId,
+        );
+
+        setRooms(fetchedRooms);
+        setRenters(fetchedRenters);
+        setFees(fetchedFees);
+        setPayments(fetchedPayments);
+        setRepairs(fetchedRepairs);
+
         // Only show master broadcast docs in the admin notification feed
         const allNotifs = listFrom<Notification>(notifData, "notifications");
         const broadcastNotifs = allNotifs.filter(
           (n) => n.userId === "ALL" || n.entityType === "BROADCAST",
         );
         setNotifications(broadcastNotifs);
-        await refreshDashboardOnly();
+        await refreshDashboardOnly(hostelId);
       } finally {
         refreshBusy.current = false;
       }

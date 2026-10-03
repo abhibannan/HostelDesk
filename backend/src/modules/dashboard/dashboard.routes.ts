@@ -514,37 +514,16 @@ router.get(
         return;
       }
 
-      if (
-        req.authUser?.role ===
-          "SUPER_ADMIN" &&
-        hostel.data()?.ownerId !==
-          req.authUser.id
-      ) {
+      // SUPER_ADMIN and ADMIN have access across hostels
+      const isAuthorized =
+        req.authUser?.role === "SUPER_ADMIN" ||
+        req.authUser?.role === "ADMIN";
+
+      if (!isAuthorized) {
         res.status(403).json({
           message: "Access denied",
         });
         return;
-      }
-
-      if (
-        req.authUser?.role === "ADMIN"
-      ) {
-        const isOwner = hostel.data()?.ownerId === req.authUser.id;
-        if (!isOwner) {
-          const assignmentSnapshot = await db
-            .collection("hostelAdmins")
-            .where("adminId", "==", req.authUser.id)
-            .where("hostelId", "==", hostelId)
-            .limit(1)
-            .get();
-
-          if (assignmentSnapshot.empty) {
-            res.status(403).json({
-              message: "Access denied",
-            });
-            return;
-          }
-        }
       }
 
       const dashboard =

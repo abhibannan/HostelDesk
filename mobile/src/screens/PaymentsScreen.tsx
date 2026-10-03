@@ -136,19 +136,27 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
   const [remindTargetFee, setRemindTargetFee] = useState<{ id: string; renterName: string; amount: number; month: string } | null>(null);
   const [customRemindMessage, setCustomRemindMessage] = useState("");
 
+  const currentHostelFees = selectedHostel?.id
+    ? fees.filter((f) => !f.hostelId || f.hostelId === selectedHostel.id)
+    : fees;
+
+  const currentHostelPayments = selectedHostel?.id
+    ? payments.filter((p) => !p.hostelId || p.hostelId === selectedHostel.id)
+    : payments;
+
   // Aggregated KPI calculations
-  const totalCollected = fees.reduce((sum, f) => sum + Number(f.paidAmount || 0), 0);
-  const totalFeeAmount = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+  const totalCollected = currentHostelFees.reduce((sum, f) => sum + Number(f.paidAmount || 0), 0);
+  const totalFeeAmount = currentHostelFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
   const totalOutstanding = Math.max(0, totalFeeAmount - totalCollected);
-  const pendingProofsCount = payments.filter(
+  const pendingProofsCount = currentHostelPayments.filter(
     (p) => String(p.status || "").toUpperCase() === "SUBMITTED" || String(p.status || "").toUpperCase() === "PENDING"
   ).length;
 
-  const paidFees = fees.filter((f) => String(f.status || "").toUpperCase() === "PAID");
-  const unpaidFees = fees.filter((f) => String(f.status || "").toUpperCase() !== "PAID");
+  const paidFees = currentHostelFees.filter((f) => String(f.status || "").toUpperCase() === "PAID");
+  const unpaidFees = currentHostelFees.filter((f) => String(f.status || "").toUpperCase() !== "PAID");
 
   // Filtered fees based on menu selection and sub-filter
-  const displayedFees = fees.filter((f) => {
+  const displayedFees = currentHostelFees.filter((f) => {
     const isPaid = String(f.status || "").toUpperCase() === "PAID";
     const currentFilter = activeOption === "fees_paid" ? "paid" : activeOption === "fees_unpaid" ? "unpaid" : feeFilter;
     if (currentFilter === "paid") return isPaid;
@@ -157,7 +165,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
   });
 
   // Filtered payment proofs
-  const displayedProofs = payments.filter((p) => {
+  const displayedProofs = currentHostelPayments.filter((p) => {
     const st = String(p.status || "APPROVED").toUpperCase();
     if (proofFilter === "submitted") return st === "SUBMITTED" || st === "PENDING";
     if (proofFilter === "approved") return st === "APPROVED";

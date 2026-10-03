@@ -226,16 +226,28 @@ export function RentersScreen(props: RentersScreenProps) {
     onRefresh,
   } = props;
 
+  const currentHostelRenters = selectedHostel?.id
+    ? renters.filter((r) => !r.hostelId || r.hostelId === selectedHostel.id)
+    : renters;
+
+  const currentHostelRooms = selectedHostel?.id
+    ? rooms.filter((r) => !r.hostelId || r.hostelId === selectedHostel.id)
+    : rooms;
+
+  const currentActiveRenters = currentHostelRenters.filter(
+    (r) => String(r.status || "ACTIVE").toUpperCase() === "ACTIVE"
+  );
+
   const [calendarTarget, setCalendarTarget] = useState<"add" | "edit" | null>(null);
-  const selectedRoom = rooms.find((room) => room.id === renterRoomId);
-  const editSelectedRoom = rooms.find((room) => room.id === editRenterRoomId);
+  const selectedRoom = currentHostelRooms.find((room) => room.id === renterRoomId);
+  const editSelectedRoom = currentHostelRooms.find((room) => room.id === editRenterRoomId);
   const normalizedSearch = renterSearch.trim().toLowerCase();
 
   const filteredRenters = normalizedSearch
-    ? renters.filter((renter) => {
+    ? currentHostelRenters.filter((renter) => {
         const roomNumber =
           renter.room?.roomNumber ||
-          rooms.find((room) => room.id === renter.roomId)?.roomNumber ||
+          currentHostelRooms.find((room) => room.id === renter.roomId)?.roomNumber ||
           "";
 
         const searchableText = [
@@ -255,7 +267,7 @@ export function RentersScreen(props: RentersScreenProps) {
 
         return searchableText.includes(normalizedSearch);
       })
-    : renters;
+    : currentHostelRenters;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -270,7 +282,7 @@ export function RentersScreen(props: RentersScreenProps) {
           <View>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Renter management</Text>
             <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
-              {activeRenters.length} active renter{activeRenters.length === 1 ? "" : "s"}
+              {currentActiveRenters.length} active renter{currentActiveRenters.length === 1 ? "" : "s"}
             </Text>
           </View>
           <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenRenterModal}>

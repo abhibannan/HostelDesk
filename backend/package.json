@@ -7,6 +7,11 @@
   },
   "dependencies": {
     "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
     "compression": "^1.8.2",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
@@ -16,17 +21,11 @@
     "helmet": "^8.3.0",
     "multer": "^2.4.0",
     "nodemailer": "^10.0.13",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
     "zod": "^4.6.5"
   },
-  "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/multer": "^2.2.0",
-    "@types/node": "^26.6.3",
-    "@types/nodemailer": "^8.0.2",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
-  },
+  "devDependencies": {},
   "engines": {
     "node": ">=22"
   }
