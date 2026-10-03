@@ -140,7 +140,7 @@ export async function checkAndProcessRecurringFees(): Promise<{
 
         // Check if fee is overdue
         if (
-          (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID") &&
+          (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID" || feeStatus === "OVERDUE") &&
           diffDays < 0
         ) {
           if (feeStatus === "PENDING") {
@@ -151,22 +151,35 @@ export async function checkAndProcessRecurringFees(): Promise<{
             markedOverdue++;
           }
 
-          // Check if an overdue notification was already sent this month for this fee
+          // Check if an overdue notification was already sent in the last 20 hours
           const existingNotifSnapshot = await db
             .collection("notifications")
             .where("userId", "==", userId)
             .where("type", "==", "FEE_OVERDUE")
             .where("entityId", "==", currentFeeId)
-            .limit(1)
+            .limit(10)
             .get();
 
-          if (existingNotifSnapshot.empty) {
+          const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+          const sentRecently = existingNotifSnapshot.docs.some((doc) => {
+            const data = doc.data();
+            return (data.createdAt || "") >= twentyHoursAgo;
+          });
+
+          if (!sentRecently) {
             try {
+              const daysOverdue = Math.abs(diffDays);
+              const overdueNotice = daysOverdue === 1
+                ? `was due yesterday (${effectiveDueDateStr})`
+                : `is overdue by ${daysOverdue} days (Due date: ${effectiveDueDateStr})`;
+
               await createNotification({
                 userId,
                 type: "FEE_OVERDUE",
-                title: `Rent Payment Overdue: ₹${feeAmount}`,
-                message: `Your rent fee of ₹${feeAmount} for ${currentMonthStr} was due on ${effectiveDueDateStr}. Please make payment immediately to avoid penalties.`,
+                title: daysOverdue === 1
+                  ? `Rent Payment Overdue: ₹${feeAmount}`
+                  : `Overdue Rent Alert (${daysOverdue}d): ₹${feeAmount}`,
+                message: `Notice from Hostel Admin: Your fee of ₹${feeAmount} for ${currentMonthStr} ${overdueNotice}. Please clear your payment immediately to avoid penalties.`,
                 hostelId,
                 entityType: "FEE",
                 entityId: currentFeeId,
@@ -208,7 +221,11 @@ export async function checkAndProcessRecurringFees(): Promise<{
               await createNotification({
                 userId,
                 type: "FEE_DUE",
-                title: `Rent Due Reminder: ₹${feeAmount}`,
+                title: diffDays === 0
+                  ? `Rent Due Today: ₹${feeAmount}`
+                  : diffDays === 1
+                  ? `Rent Due Tomorrow: ₹${feeAmount}`
+                  : `Rent Due in ${diffDays} Days: ₹${feeAmount}`,
                 message: `Reminder: Your monthly rent of ₹${feeAmount} ${dueNotice}. Please clear your payment before the due date.`,
                 hostelId,
                 entityType: "FEE",
@@ -223,27 +240,74 @@ export async function checkAndProcessRecurringFees(): Promise<{
       }
     }
 
-    // Also process any standalone / custom fees in 'fees' collection within the 5-day automated reminder window
-    const pendingFeesSnapshot = await db
+    // Also process all fees in 'fees' collection (both recurring and custom) for 5-day reminder and overdue reminder
+    const allFeesSnapshot = await db
       .collection("fees")
-      .where("status", "in", ["PENDING", "PARTIALLY_PAID"])
+      .where("status", "in", ["PENDING", "PARTIALLY_PAID", "OVERDUE"])
       .get();
 
-    for (const fDoc of pendingFeesSnapshot.docs) {
+    for (const fDoc of allFeesSnapshot.docs) {
       const fData = fDoc.data();
       if (!fData.dueDate || !fData.renterId) continue;
+      const remAmount = Math.max(0, Number(fData.amount || 0) - Number(fData.paidAmount || 0));
+      if (remAmount <= 0) continue;
+
       const fDueObj = new Date(`${fData.dueDate}T00:00:00`);
       const fTodayObj = new Date(`${currentDateStr}T00:00:00`);
       const fDiff = Math.round((fDueObj.getTime() - fTodayObj.getTime()) / (1000 * 60 * 60 * 24));
 
-      // Automated 5 days before payment window
-      if (fDiff >= 0 && fDiff <= 5) {
-        const rSnap = await db.collection("renters").doc(fData.renterId).get();
-        if (!rSnap.exists) continue;
-        const rData = rSnap.data();
-        if (!rData?.userId) continue;
+      const rSnap = await db.collection("renters").doc(fData.renterId).get();
+      if (!rSnap.exists) continue;
+      const rData = rSnap.data();
+      if (!rData?.userId) continue;
 
-        const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+      const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+
+      // Case 1: Overdue fee (after due date and still unpaid) -> send daily overdue notification
+      if (fDiff < 0) {
+        if (fData.status === "PENDING") {
+          await fDoc.ref.update({
+            status: "OVERDUE",
+            updatedAt: now.toISOString(),
+          });
+          markedOverdue++;
+        }
+
+        const overdueSnap = await db
+          .collection("notifications")
+          .where("userId", "==", rData.userId)
+          .where("type", "==", "FEE_OVERDUE")
+          .where("entityId", "==", fDoc.id)
+          .limit(10)
+          .get();
+
+        const alreadySentOverdue = overdueSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
+        if (!alreadySentOverdue) {
+          const daysOverdue = Math.abs(fDiff);
+          const overdueNotice = daysOverdue === 1
+            ? `was due yesterday (${fData.dueDate})`
+            : `is overdue by ${daysOverdue} days (Due date: ${fData.dueDate})`;
+
+          try {
+            await createNotification({
+              userId: rData.userId,
+              type: "FEE_OVERDUE",
+              title: daysOverdue === 1
+                ? `Rent Overdue: ₹${remAmount}`
+                : `Overdue Rent Notice (${daysOverdue}d): ₹${remAmount}`,
+              message: `Notice from Hostel Admin: Your fee of ₹${remAmount} for ${fData.month || "rent"} ${overdueNotice}. Please clear your payment immediately.`,
+              hostelId: fData.hostelId || rData.hostelId,
+              entityType: "FEE",
+              entityId: fDoc.id,
+            });
+            notificationsSent++;
+          } catch (e) {
+            console.error(`Failed to send automated overdue fee notification to ${rData.userId}:`, e);
+          }
+        }
+      }
+      // Case 2: Within 5 days before due date -> send daily due reminder
+      else if (fDiff >= 0 && fDiff <= 5) {
         const existingSnap = await db
           .collection("notifications")
           .where("userId", "==", rData.userId)
@@ -252,9 +316,8 @@ export async function checkAndProcessRecurringFees(): Promise<{
           .limit(10)
           .get();
 
-        const alreadySent = existingSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
-        if (!alreadySent) {
-          const remAmount = Math.max(0, Number(fData.amount || 0) - Number(fData.paidAmount || 0));
+        const alreadySentDue = existingSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
+        if (!alreadySentDue) {
           const dueNotice = fDiff === 0
             ? "is due today!"
             : fDiff === 1
@@ -265,7 +328,11 @@ export async function checkAndProcessRecurringFees(): Promise<{
             await createNotification({
               userId: rData.userId,
               type: "FEE_DUE",
-              title: `Rent Due Reminder: ₹${remAmount}`,
+              title: fDiff === 0
+                ? `Rent Due Today: ₹${remAmount}`
+                : fDiff === 1
+                ? `Rent Due Tomorrow: ₹${remAmount}`
+                : `Rent Due in ${fDiff} Days: ₹${remAmount}`,
               message: `Reminder: Your monthly rent of ₹${remAmount} ${dueNotice}. Please clear your payment before the due date.`,
               hostelId: fData.hostelId || rData.hostelId,
               entityType: "FEE",

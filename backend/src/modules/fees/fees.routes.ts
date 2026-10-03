@@ -6,6 +6,7 @@ import { requireAuth } from "../../middleware/auth.middleware.js";
 import { requireHostelAccess } from "../../middleware/hostel-access.middleware.js";
 import { requireRenterAccess } from "../../middleware/requireRenterAccess.js";
 import { writeAuditLog } from "../../utils/audit.js";
+import { checkAndProcessRecurringFees } from "../../services/recurring-fees.service.js";
 
 const router = Router();
 
@@ -336,6 +337,7 @@ router.post(
 
       if (overdueCount > 0) {
         await batch.commit();
+        void checkAndProcessRecurringFees().catch(() => {});
       }
 
       res.json({
