@@ -378,7 +378,7 @@ export function NotificationsScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 18, paddingBottom: 36 },
+  screenContent: { padding: 18, paddingBottom: 110 },
   topNavRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
   backButton: {
     width: 38,

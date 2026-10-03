@@ -473,7 +473,7 @@ export function FeesScreen(props: FeesScreenProps) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 20, paddingBottom: 34 },
+  screenContent: { padding: 20, paddingBottom: 110 },
   actionRow: { marginTop: 6, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sectionTitle: { fontSize: 17, fontWeight: "800", color: COLORS.text },
   sectionSubtitle: { marginTop: 3, color: COLORS.secondary, fontSize: 12 },

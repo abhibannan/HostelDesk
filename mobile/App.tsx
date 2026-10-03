@@ -67,7 +67,10 @@ import { PaymentsScreen } from "./src/screens/PaymentsScreen";
 import { RepairsScreen } from "./src/screens/RepairsScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
+import { SuperAdminScreen } from "./src/screens/SuperAdminScreen";
 import { ThemedAlertModal } from "./src/components/ThemedAlertModal";
+import { BiometricLockOverlay } from "./src/components/BiometricLockOverlay";
+import { useBiometrics } from "./src/hooks/useBiometrics";
 
 // Components
 import { BottomTab } from "./src/components/common";
@@ -84,6 +87,19 @@ const ADMIN_TABS: Tab[] = [
   "more",
 ];
 
+interface PlatformStatus {
+  maintenanceMode: boolean;
+  maintenanceNotice: string;
+  alertBanner?: {
+    active: boolean;
+    title: string;
+    message: string;
+    level: "INFO" | "WARN" | "CRITICAL";
+    updatedAt: string;
+    updatedBy: string;
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AppContent
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,10 +109,61 @@ function AppContent() {
   const [page, setPageState] = useState<Tab>("dashboard");
   const [pageHistory, setPageHistory] = useState<Tab[]>(["dashboard"]);
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set(["dashboard"]));
+  const [paymentsInitialOption, setPaymentsInitialOption] = useState<"menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders" | "expenses">("menu");
   const [containerWidth, setContainerWidth] = useState(
     Dimensions.get("window").width,
   );
   const pageScrollRef = useRef<ScrollView>(null);
+
+  // Platform Maintenance & Alert Banner State (Features 2 & 5)
+  const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
+  const [checkingMaintenance, setCheckingMaintenance] = useState(false);
+
+  const fetchPlatformStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/platform/status`);
+      if (res.ok) {
+        const data = (await parseJsonResponse(res)) as PlatformStatus;
+        setPlatformStatus(data);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchPlatformStatus();
+    const interval = setInterval(fetchPlatformStatus, 25000);
+    return () => clearInterval(interval);
+  }, [fetchPlatformStatus]);
+
+  const renderGlobalAlertBanner = () => {
+    if (!platformStatus?.alertBanner?.active || dismissedBanner) return null;
+    const banner = platformStatus.alertBanner;
+    const isCritical = banner.level === "CRITICAL";
+    const isWarn = banner.level === "WARN";
+    const bannerBg = isCritical
+      ? (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2")
+      : isWarn
+      ? (isDark ? "rgba(245, 158, 11, 0.15)" : "#FFFBEB")
+      : (isDark ? "rgba(56, 189, 248, 0.15)" : "#F0F9FF");
+    const bannerBorder = isCritical ? "#EF4444" : isWarn ? "#F59E0B" : "#0284C7";
+    const bannerIcon = isCritical ? "alert-circle" : isWarn ? "warning" : "information-circle";
+
+    return (
+      <View style={[styles.globalBannerContainer, { backgroundColor: bannerBg, borderColor: bannerBorder }]}>
+        <Ionicons name={bannerIcon as any} size={18} color={bannerBorder} style={{ marginTop: 2 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.globalBannerTitle, { color: colors.text }]}>{banner.title}</Text>
+          <Text style={[styles.globalBannerText, { color: colors.secondary }]}>{banner.message}</Text>
+        </View>
+        <TouchableOpacity onPress={() => setDismissedBanner(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="close" size={16} color={colors.secondary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const goBack = useCallback(() => {
     setPageHistory((prev) => {
@@ -221,6 +288,9 @@ function AppContent() {
   const auth = useAuth(authCallbacks);
   // Wire the ref once auth is available
   setCurrentRenterDocRef.current = auth.setCurrentRenterDoc;
+
+  // ── Biometrics layer (Hardware Fingerprint / Face ID lock) ─────────────────
+  const biometrics = useBiometrics(Boolean(auth.token));
 
   const [hasRemotePush, setHasRemotePush] = useState(false);
 
@@ -390,14 +460,14 @@ function AppContent() {
 
   useEffect(() => {
     if (!auth.token || !data.selectedHostelId) return;
-    if (auth.currentUser?.role === "RENTER") return; // Renters don't need admin refreshAll
+    if (auth.currentUser?.role !== "ADMIN") return; // Super Admin & Renters don't load admin hostel data
     void data.refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.token, data.selectedHostelId, auth.currentUser?.role]);
 
   useEffect(() => {
     if (!auth.token || !data.selectedHostelId) return;
-    if (auth.currentUser?.role === "RENTER") return;
+    if (auth.currentUser?.role !== "ADMIN") return;
     const timer = setInterval(() => {
       void data.refreshHostelData(data.selectedHostelId);
     }, 30000);
@@ -417,7 +487,7 @@ function AppContent() {
               auth.setCurrentRenterDoc,
             );
           }
-        } else {
+        } else if (auth.currentUser?.role === "ADMIN") {
           void data.refreshHostelData(data.selectedHostelId);
         }
       }
@@ -555,6 +625,7 @@ function AppContent() {
           barStyle={isDark ? "light-content" : "dark-content"}
           backgroundColor={colors.background}
         />
+        {renderGlobalAlertBanner()}
         <LoginScreen
           loginRole={auth.loginRole}
           setLoginRole={auth.setLoginRole}
@@ -583,6 +654,98 @@ function AppContent() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — Biometric lock overlay (Hardware Face ID / Fingerprint guard)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (auth.token && biometrics.isBiometricsEnabled && biometrics.isLocked) {
+    return (
+      <BiometricLockOverlay
+        biometricLabel={biometrics.biometricTypeLabel}
+        authError={biometrics.authError}
+        onUnlock={() => void biometrics.promptUnlock()}
+        onLogout={() => void auth.logout()}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — Super Admin (Dedicated Administrator Governance Console)
+  // Super Admin can ONLY add and manage admins — no other hostel operations.
+  // Super Admin ALWAYS bypasses maintenance mode.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (auth.currentUser?.role === "SUPER_ADMIN") {
+    return (
+      <SuperAdminScreen
+        currentUser={auth.currentUser}
+        token={auth.token}
+        onLogout={auth.logout}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER — Platform Maintenance Mode (Feature 5)
+  // If active, all non-Super Admin traffic receives this graceful screen.
+  // ─────────────────────────────────────────────────────────────────────────
+  if (platformStatus?.maintenanceMode) {
+    return (
+      <SafeAreaView
+        style={[
+          styles.safeArea,
+          {
+            backgroundColor: colors.background,
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+          },
+        ]}
+      >
+        <StatusBar
+          barStyle={isDark ? "light-content" : "dark-content"}
+          backgroundColor={colors.background}
+        />
+        <View style={[styles.maintenanceCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.maintenanceIconBadge,
+              {
+                backgroundColor: isDark ? "rgba(245, 158, 11, 0.12)" : "#FFFBEB",
+                borderColor: "#F59E0B",
+              },
+            ]}
+          >
+            <Ionicons name="construct-outline" size={32} color="#F59E0B" />
+          </View>
+          <View style={[styles.maintenancePill, { backgroundColor: isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7" }]}>
+            <Text style={[styles.maintenancePillText, { color: "#F59E0B" }]}>SYSTEM NOTICE</Text>
+          </View>
+          <Text style={[styles.maintenanceTitle, { color: colors.text }]}>Platform Under Maintenance</Text>
+          <Text style={[styles.maintenanceMessage, { color: colors.secondary }]}>
+            {platformStatus.maintenanceNotice || "StayNexa is currently undergoing scheduled platform upgrades. Services will resume shortly."}
+          </Text>
+          <TouchableOpacity
+            style={[styles.maintenanceRefreshBtn, { backgroundColor: colors.text }]}
+            onPress={async () => {
+              setCheckingMaintenance(true);
+              await fetchPlatformStatus();
+              setCheckingMaintenance(false);
+            }}
+            disabled={checkingMaintenance}
+          >
+            {checkingMaintenance ? (
+              <ActivityIndicator size="small" color={colors.background} />
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="refresh-outline" size={15} color={colors.background} />
+                <Text style={[styles.maintenanceRefreshBtnText, { color: colors.background }]}>Check System Status</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // RENDER — renter portal
   // ─────────────────────────────────────────────────────────────────────────
   if (auth.currentUser?.role === "RENTER") {
@@ -592,6 +755,7 @@ function AppContent() {
           barStyle={isDark ? "light-content" : "dark-content"}
           backgroundColor={colors.card}
         />
+        {renderGlobalAlertBanner()}
         <RenterPortalScreen
           user={auth.currentUser}
           renter={auth.currentRenterDoc}
@@ -616,6 +780,10 @@ function AppContent() {
           onSubmitProof={handleRenterSubmitProof}
           onSubmitRepair={handleRenterSubmitRepair}
           scheduleLocalNotification={scheduleLocalNotification}
+          biometricLabel={biometrics.biometricTypeLabel}
+          isBiometricsEnabled={biometrics.isBiometricsEnabled}
+          isBiometricsSupported={biometrics.isHardwareAvailable && biometrics.isEnrolled}
+          onToggleBiometrics={biometrics.toggleBiometrics}
         />
       </SafeAreaView>
     );
@@ -721,16 +889,19 @@ function AppContent() {
     page === "repairs" ||
     page === "notifications";
 
+
+
   // ─────────────────────────────────────────────────────────────────────────
-  // RENDER — admin dashboard
+  // RENDER — Hostel Admin dashboard (hostels, rooms, renters, fees, repairs)
   // ─────────────────────────────────────────────────────────────────────────
-  if (auth.currentUser?.role === "ADMIN" || auth.currentUser?.role === "SUPER_ADMIN") {
+  if (auth.currentUser?.role === "ADMIN") {
     return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar
         barStyle={isDark ? "light-content" : "dark-content"}
         backgroundColor={colors.background}
       />
+      {renderGlobalAlertBanner()}
       <View style={[styles.appContainer, { backgroundColor: colors.background }]}>
         <View
           style={[{ flex: 1 }, isDetailSubPage && { display: "none" }]}
@@ -770,11 +941,22 @@ function AppContent() {
                           dashboard={data.dashboard}
                           selectedHostel={data.selectedHostel}
                           payments={data.payments}
+                          fees={data.fees}
+                          renters={data.renters}
                           paymentProofStats={paymentProofStats}
                           recentPayments={recentPayments}
                           monthlyPaymentBars={monthlyPaymentBars}
                           onRefresh={() => void data.refreshAll()}
-                          onNavigate={setPage}
+                          onNavigate={(targetPage) => {
+                            if (targetPage === "payments") {
+                              setPaymentsInitialOption("menu");
+                            }
+                            setPage(targetPage);
+                          }}
+                          onNavigateToExpenses={() => {
+                            setPaymentsInitialOption("expenses");
+                            setPage("payments");
+                          }}
                         />
                       )}
 
@@ -911,6 +1093,9 @@ function AppContent() {
                       {tabKey === "more" && (
                         <MoreScreen
                           currentUser={auth.currentUser}
+                          token={auth.token}
+                          hostels={data.hostels}
+                          onRefreshHostels={() => void data.refreshAll()}
                           onNavigateToFees={() => setPage("payments")}
                           onNavigateToPayments={() => setPage("payments")}
                           onNavigateToRepairs={() => setPage("repairs")}
@@ -920,6 +1105,10 @@ function AppContent() {
                           onLogout={() => void auth.logout()}
                           themeMode={themeMode}
                           onToggleTheme={toggleTheme}
+                          biometricLabel={biometrics.biometricTypeLabel}
+                          isBiometricsEnabled={biometrics.isBiometricsEnabled}
+                          isBiometricsSupported={biometrics.isHardwareAvailable && biometrics.isEnrolled}
+                          onToggleBiometrics={biometrics.toggleBiometrics}
                         />
                       )}
                     </>
@@ -940,6 +1129,7 @@ function AppContent() {
                 activeRenters={data.activeRenters}
                 rooms={data.rooms}
                 selectedHostel={data.selectedHostel}
+                initialOption={paymentsInitialOption}
                 showFeeModal={fees.showFeeModal}
                 setShowFeeModal={fees.setShowFeeModal}
                 feeRenterId={fees.feeRenterId}
@@ -980,6 +1170,7 @@ function AppContent() {
                 onRemindAllUnpaid={() => notifications.remindAllUnpaid()}
                 onRefresh={() => void data.refreshAll()}
                 onBack={goBack}
+                token={auth.token}
               />
             )}
 
@@ -1192,4 +1383,82 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   refreshOverlayText: { fontSize: 11 },
+
+  // Global Alert Banner Styles
+  globalBannerContainer: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    zIndex: 999,
+  },
+  globalBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  globalBannerText: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+
+  // Maintenance Screen Styles
+  maintenanceCard: {
+    width: "100%",
+    maxWidth: 380,
+    padding: 28,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  maintenanceIconBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  maintenancePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  maintenancePillText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  maintenanceTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  maintenanceMessage: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  maintenanceRefreshBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  maintenanceRefreshBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
 });

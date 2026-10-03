@@ -41,7 +41,8 @@
           "icon": "./assets/icon.png",
           "color": "#2563EB"
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

@@ -939,7 +939,7 @@ export function RoomsScreen({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 20, paddingBottom: 40 },
+  screenContent: { padding: 20, paddingBottom: 110 },
 
   // Stats bar
   statsBar: {
@@ -1055,6 +1055,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 22,
     paddingBottom: 36,
+    maxHeight: "90%",
   },
   modalCardLarge: {
     backgroundColor: COLORS.background,

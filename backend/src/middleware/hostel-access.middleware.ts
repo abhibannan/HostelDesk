@@ -46,9 +46,18 @@ export async function requireHostelAccess(
       return;
     }
 
-    // SUPER ADMIN & ADMIN
-    // Full platform access to all hostels ("admin is only the superadmin")
-    if (req.authUser.role === "SUPER_ADMIN" || req.authUser.role === "ADMIN") {
+    // SUPER ADMIN
+    // User restriction: "the super admin can only add admins no other operations"
+    if (req.authUser.role === "SUPER_ADMIN") {
+      res.status(403).json({
+        message: "Super Admin can only add and manage administrators. Hostel operations are restricted to Hostel Admins.",
+      });
+      return;
+    }
+
+    // ADMIN (Hostel Administrator)
+    // Multi-admin boundary: Each admin has their own data.
+    if (req.authUser.role === "ADMIN") {
       const hostelSnapshot = await db
         .collection("hostels")
         .doc(hostelId)
@@ -57,6 +66,26 @@ export async function requireHostelAccess(
       if (!hostelSnapshot.exists) {
         res.status(404).json({ message: "Hostel not found" });
         return;
+      }
+
+      const hostelData = hostelSnapshot.data() || {};
+      const isOwner = hostelData.ownerId === req.authUser.id;
+
+      if (!isOwner) {
+        // Check if assigned in hostelAdmins collection
+        const assignmentSnap = await db
+          .collection("hostelAdmins")
+          .where("adminId", "==", req.authUser.id)
+          .where("hostelId", "==", hostelId)
+          .limit(1)
+          .get();
+
+        if (assignmentSnap.empty) {
+          res.status(403).json({
+            message: "You do not have administrative access to this hostel.",
+          });
+          return;
+        }
       }
 
       accessCache.set(cacheKey, { granted: true, timestamp: Date.now() });

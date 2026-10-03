@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,15 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
-import { ThemeMode } from "../constants/theme";
+import { COLORS, ThemeMode } from "../constants/theme";
 import { Header } from "../components/common";
-import { User } from "../types";
+import { Hostel, User } from "../types";
 
 interface MoreScreenProps {
   currentUser?: User | null;
+  token?: string | null;
+  hostels?: Hostel[];
+  onRefreshHostels?: () => void;
   onNavigateToFees: () => void;
   onNavigateToPayments: () => void;
   onNavigateToRepairs: () => void;
@@ -25,6 +28,10 @@ interface MoreScreenProps {
   onLogout: () => void;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
+  biometricLabel?: string;
+  isBiometricsEnabled?: boolean;
+  isBiometricsSupported?: boolean;
+  onToggleBiometrics?: (enable: boolean) => Promise<boolean>;
 }
 
 function MoreRow({
@@ -78,6 +85,9 @@ function MoreRow({
 
 export function MoreScreen({
   currentUser,
+  token,
+  hostels = [],
+  onRefreshHostels,
   onNavigateToFees,
   onNavigateToPayments,
   onNavigateToRepairs,
@@ -87,6 +97,10 @@ export function MoreScreen({
   onLogout,
   themeMode,
   onToggleTheme,
+  biometricLabel = "Biometric",
+  isBiometricsEnabled = false,
+  isBiometricsSupported = false,
+  onToggleBiometrics,
 }: MoreScreenProps) {
   const { colors } = useTheme();
   const isDark = themeMode === "dark";
@@ -126,11 +140,19 @@ export function MoreScreen({
             {currentUser?.email || ""}
           </Text>
           <View style={[styles.roleBadge, { backgroundColor: colors.card }]}>
-            <Ionicons name="shield-checkmark-outline" size={11} color={colors.primary} />
-            <Text style={[styles.roleText, { color: colors.primary }]}>Admin</Text>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={11}
+              color={colors.primary}
+            />
+            <Text style={[styles.roleText, { color: colors.primary }]}>
+              Hostel Admin
+            </Text>
           </View>
         </View>
       </View>
+
+
 
       {/* Section label */}
       <Text style={[styles.sectionLabel, { color: colors.secondary }]}>MODULES</Text>
@@ -187,6 +209,49 @@ export function MoreScreen({
 
       {/* Section label */}
       <Text style={[styles.sectionLabel, { color: colors.secondary, marginTop: 8 }]}>
+        SECURITY & BIOMETRICS
+      </Text>
+
+      {/* Biometric Unlock toggle row */}
+      <View
+        style={[styles.moreRow, styles.themeRow, { borderColor: colors.border, backgroundColor: colors.card }]}
+      >
+        <View
+          style={[styles.moreIcon, { backgroundColor: isBiometricsEnabled ? "rgba(16, 185, 129, 0.15)" : colors.primaryLight }]}
+        >
+          <Ionicons
+            name={biometricLabel.toLowerCase().includes("face") ? "scan-outline" : "finger-print-outline"}
+            size={22}
+            color={isBiometricsEnabled ? COLORS.success : colors.primary}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.moreTitle, { color: colors.text }]}>
+            {biometricLabel} Unlock
+          </Text>
+          <Text style={{ fontSize: 11, color: colors.secondary, marginTop: 1 }}>
+            {isBiometricsSupported
+              ? "Instant unlock without typing passwords repeatedly"
+              : "Not available or enrolled on this device"}
+          </Text>
+        </View>
+        <Switch
+          disabled={!isBiometricsSupported}
+          value={Boolean(isBiometricsEnabled)}
+          onValueChange={async (val) => {
+            try {
+              await onToggleBiometrics?.(val);
+            } catch (err: any) {
+              Alert.alert("Biometrics Error", err?.message || "Could not toggle biometrics.");
+            }
+          }}
+          trackColor={{ false: colors.grayFill, true: colors.primary }}
+          thumbColor="#FFFFFF"
+        />
+      </View>
+
+      {/* Section label */}
+      <Text style={[styles.sectionLabel, { color: colors.secondary, marginTop: 8 }]}>
         ACCOUNT
       </Text>
 
@@ -199,13 +264,15 @@ export function MoreScreen({
       />
 
       <Text style={[styles.versionText, { color: colors.secondary }]}>StayNexa v1.0.0</Text>
+
+
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  screenContent: { padding: 20, paddingBottom: 40 },
+  screenContent: { padding: 20, paddingBottom: 110 },
 
   // Profile card
   profileCard: {
@@ -311,5 +378,50 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 11,
     marginTop: 20,
+  },
+
+  // Super Admin Card
+  superAdminCard: {
+    borderWidth: 1.5,
+    borderRadius: 18,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    gap: 12,
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  superAdminIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "rgba(99, 102, 241, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  superAdminTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  superBadge: {
+    backgroundColor: "#6366F1",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  superBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  superAdminSub: {
+    fontSize: 12,
+    marginTop: 3,
+    lineHeight: 16,
   },
 });

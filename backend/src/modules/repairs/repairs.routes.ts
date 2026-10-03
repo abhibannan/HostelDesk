@@ -41,6 +41,9 @@ const updateRepairSchema = z.object({
   adminNotes: z.string().trim().max(2000).optional(),
   assignedTo: z.string().trim().max(100).optional(),
   assignedRepairPersonId: z.string().trim().max(100).optional(),
+  resolvedPhotoUrl: z.string().trim().optional(),
+  resolvedUploadId: z.string().trim().optional(),
+  beforePhotoUrl: z.string().trim().optional(),
 });
 
 const createRepairPersonSchema = z.object({
@@ -1118,6 +1121,79 @@ router.delete(
 
       await taskRef.delete();
       res.json({ message: "Maintenance task removed" });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Rate a completed repair (1 to 5 stars + review feedback)
+router.post(
+  "/:hostelId/repairs/:repairId/rate",
+  requireAuth,
+  requireHostelAccess,
+  async (req, res, next) => {
+    try {
+      const hostelId = req.params.hostelId as string;
+      const repairId = req.params.repairId as string;
+      const rateSchema = z.object({
+        rating: z.number().int().min(1).max(5),
+        feedback: z.string().trim().max(1000).optional(),
+      });
+
+      const parsed = rateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: "Invalid rating data. Rating must be between 1 and 5.",
+          errors: parsed.error.flatten(),
+        });
+        return;
+      }
+
+      const repairRef = db.collection("repairs").doc(repairId);
+      const repairDoc = await repairRef.get();
+      if (!repairDoc.exists || repairDoc.data()?.hostelId !== hostelId) {
+        res.status(404).json({ message: "Repair request not found" });
+        return;
+      }
+
+      const repairData = repairDoc.data()!;
+      const now = new Date().toISOString();
+
+      await repairRef.update({
+        rating: parsed.data.rating,
+        ratingFeedback: parsed.data.feedback || null,
+        ratedAt: now,
+        updatedAt: now,
+      });
+
+      if (repairData.assignedRepairPersonId) {
+        try {
+          const personRef = db.collection("repairPersons").doc(repairData.assignedRepairPersonId);
+          const personDoc = await personRef.get();
+          if (personDoc.exists) {
+            const pData = personDoc.data()!;
+            const totalRatings = Number(pData.totalRatings || 0) + 1;
+            const currentTotalScore = Number(pData.averageRating || 5) * Number(pData.totalRatings || 0);
+            const newAvg = Number(((currentTotalScore + parsed.data.rating) / totalRatings).toFixed(1));
+            await personRef.update({
+              averageRating: newAvg,
+              totalRatings,
+              updatedAt: now,
+            });
+          }
+        } catch {
+          // ignore technician rating sync failure
+        }
+      }
+
+      clearRepairsCache(hostelId);
+
+      res.json({
+        message: "Thank you for your rating! Feedback recorded.",
+        rating: parsed.data.rating,
+        feedback: parsed.data.feedback || null,
+      });
     } catch (error) {
       next(error);
     }

@@ -105,6 +105,12 @@ export function useRenterActions(cb: RenterActionsCallbacks) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue) || emailValue.length > 255) {
       return Alert.alert("Invalid email", "Enter a valid email address.");
     }
+    if (auth.currentUser?.email && emailValue.toLowerCase() === auth.currentUser.email.toLowerCase()) {
+      return Alert.alert(
+        "Administrator Account",
+        "You are currently logged in with this Administrator email. Administrators cannot be added as renters.",
+      );
+    }
     // Phone and guardian phone are optional on first entry
     if (phoneValue && (phoneValue.length < 7 || phoneValue.length > 30)) {
       return Alert.alert("Invalid phone", "Phone number must contain 7 to 30 characters.");

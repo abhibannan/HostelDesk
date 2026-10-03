@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
 import { Hostel, MaintenanceTask, Renter, Repair, RepairPerson, Room } from "../types";
@@ -33,6 +35,8 @@ interface RepairsScreenProps {
   setRepairStatus: (s: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED") => void;
   adminNotes: string;
   setAdminNotes: (n: string) => void;
+  resolvedPhotoUri?: string | null;
+  setResolvedPhotoUri?: (uri: string | null) => void;
   repairSaving: boolean;
   onOpenStatusModal: (repair: Repair) => void;
   onUpdateStatus: (repairId?: string, overrideStatus?: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED", notes?: string) => Promise<void>;
@@ -95,6 +99,8 @@ export function RepairsScreen({
   setRepairStatus,
   adminNotes,
   setAdminNotes,
+  resolvedPhotoUri,
+  setResolvedPhotoUri,
   repairSaving,
   onOpenStatusModal,
   onUpdateStatus,
@@ -969,6 +975,88 @@ export function RepairsScreen({
               numberOfLines={3}
             />
 
+            {repairStatus === "RESOLVED" && (
+              <View style={{ marginTop: 12, marginBottom: 6 }}>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>
+                  Completion Photo (After Repair)
+                </Text>
+                <Text style={{ fontSize: 11, color: colors.secondary, marginBottom: 8 }}>
+                  Attach a photo of the completed repair before marking the ticket RESOLVED.
+                </Text>
+
+                {resolvedPhotoUri ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                    <Image
+                      source={{ uri: resolvedPhotoUri }}
+                      style={{ width: 70, height: 70, borderRadius: 10, borderWidth: 1, borderColor: colors.border }}
+                    />
+                    <TouchableOpacity
+                      style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.dangerLight }}
+                      onPress={() => setResolvedPhotoUri?.(null)}
+                    >
+                      <Text style={{ color: COLORS.danger, fontSize: 12, fontWeight: "600" }}>Remove Photo</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surfaceSecondary,
+                        gap: 6,
+                      }}
+                      onPress={async () => {
+                        const perm = await ImagePicker.requestCameraPermissionsAsync();
+                        if (perm.granted) {
+                          const res = await ImagePicker.launchCameraAsync({ quality: 0.6 });
+                          if (!res.canceled && res.assets?.[0]) {
+                            setResolvedPhotoUri?.(res.assets[0].uri);
+                          }
+                        }
+                      }}
+                    >
+                      <Ionicons name="camera-outline" size={16} color={colors.primary} />
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Take Photo</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 10,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surfaceSecondary,
+                        gap: 6,
+                      }}
+                      onPress={async () => {
+                        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                        if (perm.granted) {
+                          const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, mediaTypes: ["images"] });
+                          if (!res.canceled && res.assets?.[0]) {
+                            setResolvedPhotoUri?.(res.assets[0].uri);
+                          }
+                        }
+                      }}
+                    >
+                      <Ionicons name="image-outline" size={16} color={colors.primary} />
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Upload Image</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.cancelBtn, { borderColor: colors.border }]}
@@ -1478,7 +1566,7 @@ export function RepairsScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 18, paddingBottom: 36 },
+  screenContent: { padding: 18, paddingBottom: 110 },
   topNavRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
   backButton: {
     width: 38,

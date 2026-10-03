@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { firebaseAuth, db } from "../config/firebase.js";
+import { env } from "../config/env.js";
 import type { AuthUser } from "../types/auth.js";
 
 interface CachedAuth {
@@ -22,6 +23,89 @@ export function invalidateAuthCache(userId?: string) {
     }
   } else {
     authCache.clear();
+  }
+}
+
+export async function resolveAuthUserFromToken(token: string): Promise<{ authUser: AuthUser; firebaseUser: any } | null> {
+  // Fast path: in-memory cached authentication
+  const cached = authCache.get(token);
+  if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) {
+    return { authUser: cached.authUser, firebaseUser: cached.firebaseUser };
+  }
+
+  try {
+    const firebaseUser = await firebaseAuth.verifyIdToken(token);
+    let userDocument = null;
+    const snapshot = await db
+      .collection("users")
+      .where("firebaseUid", "==", firebaseUser.uid)
+      .limit(1)
+      .get();
+
+    if (!snapshot.empty) {
+      userDocument = snapshot.docs[0];
+    } else if (firebaseUser.email) {
+      const emailSnapshot = await db
+        .collection("users")
+        .where("email", "==", firebaseUser.email.toLowerCase())
+        .limit(1)
+        .get();
+
+      if (!emailSnapshot.empty && emailSnapshot.docs[0]) {
+        userDocument = emailSnapshot.docs[0];
+        await userDocument.ref.update({
+          firebaseUid: firebaseUser.uid,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (!userDocument && firebaseUser.email && env.BOOTSTRAP_ADMIN_EMAIL && firebaseUser.email.toLowerCase() === env.BOOTSTRAP_ADMIN_EMAIL.toLowerCase()) {
+      const newRef = db.collection("users").doc(firebaseUser.uid);
+      const now = new Date().toISOString();
+      const adminData = {
+        id: firebaseUser.uid,
+        firebaseUid: firebaseUser.uid,
+        email: firebaseUser.email.toLowerCase(),
+        firstName: "Abhilash",
+        lastName: "Bannan",
+        role: "SUPER_ADMIN" as const,
+        status: "ACTIVE" as const,
+        phone: null,
+        profilePhotoUrl: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await newRef.set(adminData);
+      userDocument = {
+        id: newRef.id,
+        data: () => adminData,
+      } as any;
+    }
+
+    if (!userDocument) {
+      return null;
+    }
+
+    const authUser = {
+      id: userDocument.id,
+      ...(userDocument.data() as Omit<AuthUser, "id">),
+    } as AuthUser;
+
+    if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
+      const firstKey = authCache.keys().next().value;
+      if (firstKey) authCache.delete(firstKey);
+    }
+    authCache.set(token, {
+      firebaseUser,
+      authUser,
+      cachedAt: Date.now(),
+    });
+
+    return { authUser, firebaseUser };
+  } catch (err) {
+    console.error("TOKEN RESOLUTION ERROR:", err);
+    return null;
   }
 }
 
@@ -48,103 +132,22 @@ export async function requireAuth(
     return;
   }
 
-  // Fast path: in-memory cached authentication
-  const cached = authCache.get(token);
-  if (cached && Date.now() - cached.cachedAt < AUTH_CACHE_TTL_MS) {
-    req.firebaseUser = cached.firebaseUser;
-    req.authUser = cached.authUser;
-    next();
-    return;
-  }
-
-  // Step 1: Verify Firebase token
-  let firebaseUser;
-
-  try {
-    firebaseUser = await firebaseAuth.verifyIdToken(token);
-    req.firebaseUser = firebaseUser;
-  } catch (error) {
-    console.error("FIREBASE TOKEN VERIFICATION ERROR:", error);
-
+  const resolved = await resolveAuthUserFromToken(token);
+  if (!resolved) {
     res.status(401).json({
-      message: "Invalid or expired Firebase ID token",
+      message: "Invalid or expired Firebase ID token, or user profile not found",
     });
     return;
   }
 
-  // Step 2: Find StayNexa user profile
-  try {
-    let userDocument = null;
-    const snapshot = await db
-      .collection("users")
-      .where("firebaseUid", "==", firebaseUser.uid)
-      .limit(1)
-      .get();
-
-    if (!snapshot.empty) {
-      userDocument = snapshot.docs[0];
-    } else if (firebaseUser.email) {
-      // Fallback by email (e.g. created by admin, now logging in with Google)
-      const emailSnapshot = await db
-        .collection("users")
-        .where("email", "==", firebaseUser.email.toLowerCase())
-        .limit(1)
-        .get();
-
-      if (!emailSnapshot.empty && emailSnapshot.docs[0]) {
-        userDocument = emailSnapshot.docs[0];
-        // Auto-link the new Firebase UID
-        await userDocument.ref.update({
-          firebaseUid: firebaseUser.uid,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-    }
-
-    if (!userDocument) {
-      console.error(
-        "STAYNEXA USER PROFILE NOT FOUND FOR FIREBASE UID / EMAIL:",
-        firebaseUser.uid,
-        firebaseUser.email,
-      );
-
-      res.status(404).json({
-        message: "StayNexa user profile not found. Please contact your hostel admin.",
-      });
-      return;
-    }
-
-    const authUser = {
-      id: userDocument.id,
-      ...(userDocument.data() as Omit<AuthUser, "id">),
-    } as AuthUser;
-
-    if (authUser.status !== "ACTIVE") {
-      res.status(403).json({
-        message: "User account is disabled",
-      });
-      return;
-    }
-
-    req.authUser = authUser;
-
-    // Cache the verified auth
-    if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
-      const firstKey = authCache.keys().next().value;
-      if (firstKey) authCache.delete(firstKey);
-    }
-    authCache.set(token, {
-      firebaseUser,
-      authUser,
-      cachedAt: Date.now(),
+  if (resolved.authUser.status !== "ACTIVE") {
+    res.status(403).json({
+      message: "User account is disabled",
     });
-
-    next();
-  } catch (error) {
-    console.error("STAYNEXA USER LOOKUP ERROR:", error);
-
-    res.status(500).json({
-      message: "Unable to load StayNexa user profile",
-    });
+    return;
   }
+
+  req.firebaseUser = resolved.firebaseUser;
+  req.authUser = resolved.authUser;
+  next();
 }

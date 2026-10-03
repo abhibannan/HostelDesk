@@ -19,6 +19,7 @@ import { Fee, Hostel, Payment, Renter, Room } from "../types";
 import { getName, getEmail, money, statusLabel, currentMonth } from "../utils/formatters";
 import { Header, EmptyState } from "../components/common";
 import { useTheme } from "../contexts/ThemeContext";
+import { ExpensesView } from "../components/ExpensesView";
 
 interface PaymentsScreenProps {
   fees: Fee[];
@@ -27,6 +28,7 @@ interface PaymentsScreenProps {
   activeRenters?: Renter[];
   rooms?: Room[];
   selectedHostel?: Hostel;
+  token?: string | null;
 
   // Fee actions
   showFeeModal: boolean;
@@ -70,6 +72,7 @@ interface PaymentsScreenProps {
 
   onRefresh: () => void;
   onBack?: () => void;
+  initialOption?: "menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders" | "expenses";
 }
 
 export function PaymentsScreen(props: PaymentsScreenProps) {
@@ -114,11 +117,19 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
     onRemindAllUnpaid,
     onRefresh,
     onBack,
+    token,
+    initialOption = "menu",
   } = props;
   const { colors, isDark } = useTheme();
 
-  // Options menu: "menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders"
-  const [activeOption, setActiveOption] = useState<"menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders">("menu");
+  // Options menu: "menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders" | "expenses"
+  const [activeOption, setActiveOption] = useState<"menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders" | "expenses">(initialOption);
+
+  React.useEffect(() => {
+    if (initialOption) {
+      setActiveOption(initialOption);
+    }
+  }, [initialOption]);
   const [showMenuSheet, setShowMenuSheet] = useState(false);
   const [infoModalText, setInfoModalText] = useState<{ title: string; desc: string } | null>(null);
 
@@ -221,6 +232,8 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                   ? "Unpaid People"
                   : activeOption === "proofs"
                   ? "Payment Receipts"
+                  : activeOption === "expenses"
+                  ? "Expenses & Financials"
                   : "Remind Option"
               }
               subtitle={selectedHostel?.name || "Financial Management"}
@@ -230,24 +243,26 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
         </View>
 
         {/* Financial KPI Summary Bar */}
-        <View style={[styles.kpiContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.kpiItem}>
-            <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Collected</Text>
-            <Text style={[styles.kpiValue, { color: COLORS.success }]}>{money(totalCollected)}</Text>
+        {activeOption !== "expenses" && (
+          <View style={[styles.kpiContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Collected</Text>
+              <Text style={[styles.kpiValue, { color: COLORS.success }]}>{money(totalCollected)}</Text>
+            </View>
+            <View style={[styles.kpiDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Outstanding</Text>
+              <Text style={[styles.kpiValue, { color: COLORS.danger }]}>{money(totalOutstanding)}</Text>
+            </View>
+            <View style={[styles.kpiDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Proof Reviews</Text>
+              <Text style={[styles.kpiValue, { color: pendingProofsCount > 0 ? COLORS.warning : colors.secondary }]}>
+                {pendingProofsCount}
+              </Text>
+            </View>
           </View>
-          <View style={[styles.kpiDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.kpiItem}>
-            <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Outstanding</Text>
-            <Text style={[styles.kpiValue, { color: COLORS.danger }]}>{money(totalOutstanding)}</Text>
-          </View>
-          <View style={[styles.kpiDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.kpiItem}>
-            <Text style={[styles.kpiLabel, { color: colors.secondary }]}>Proof Reviews</Text>
-            <Text style={[styles.kpiValue, { color: pendingProofsCount > 0 ? COLORS.warning : colors.secondary }]}>
-              {pendingProofsCount}
-            </Text>
-          </View>
-        </View>
+        )}
 
         {/* ── Payments Menu Hub (When in Menu Mode) ── */}
         {activeOption === "menu" ? (
@@ -352,6 +367,27 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
               </TouchableOpacity>
 
+              {/* Option 5: Expenses & Net Profit Tracker */}
+              <TouchableOpacity
+                style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => setActiveOption("expenses")}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(245,158,11,0.18)" : "rgba(245, 158, 11, 0.12)" }]}>
+                  <Ionicons name="pie-chart-outline" size={22} color="#F59E0B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuCardTitle, { color: colors.text }]}>Expenses & Financial Tracker</Text>
+                  <Text style={{ fontSize: 11, color: colors.secondary, marginTop: 2 }}>
+                    Electricity, water, salaries & PDF statement export
+                  </Text>
+                </View>
+                <View style={[styles.menuCounterBadge, { backgroundColor: isDark ? "rgba(245,158,11,0.2)" : "rgba(245, 158, 11, 0.12)" }]}>
+                  <Text style={[styles.menuCounterBadgeText, { color: "#F59E0B" }]}>P&L Ledger</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
+              </TouchableOpacity>
+
               {/* Quick Actions Header */}
               <Text style={[styles.menuSectionDividerText, { color: colors.secondary }]}>FINANCIAL ACTIONS</Text>
 
@@ -402,6 +438,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 {activeOption === "fees_unpaid" && "Unpaid People"}
                 {activeOption === "proofs" && "Receipts"}
                 {activeOption === "reminders" && "Reminders"}
+                {activeOption === "expenses" && "Expenses & Financials"}
               </Text>
               <Ionicons name="chevron-down" size={13} color={colors.secondary} />
             </TouchableOpacity>
@@ -410,7 +447,12 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
             <TouchableOpacity
               style={[styles.infoIconBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginLeft: 10 }]}
               onPress={() => {
-                if (activeOption === "fees_all") {
+                if (activeOption === "expenses") {
+                  setInfoModalText({
+                    title: "Expenses & Financials",
+                    desc: "Track monthly operational expenses (electricity, water, staff salaries, internet) and download full CSV ledger reports.",
+                  });
+                } else if (activeOption === "fees_all") {
                   setInfoModalText({
                     title: "Fees (All Records)",
                     desc: "View all resident invoices, dues, and payment logs across all tenants.",
@@ -898,6 +940,20 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
             )}
           </View>
         )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+           TAB 4: EXPENSES & FINANCIAL TRACKER (P&L, Monthly Bills, CSV Export)
+           ════════════════════════════════════════════════════════════════════ */}
+        {activeOption === "expenses" && (
+          <ExpensesView
+            hostelId={selectedHostel?.id}
+            hostelName={selectedHostel?.name}
+            token={token || null}
+            fees={currentHostelFees}
+            payments={currentHostelPayments}
+            onBack={() => setActiveOption("menu")}
+          />
+        )}
       </ScrollView>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -1268,6 +1324,20 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {activeOption === "reminders" && <Ionicons name="checkmark" size={18} color={COLORS.purple} />}
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.menuSheetItem, activeOption === "expenses" && { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.primaryLight }]}
+              onPress={() => { setActiveOption("expenses"); setShowMenuSheet(false); }}
+            >
+              <View style={[styles.menuSheetIconBox, { backgroundColor: isDark ? "rgba(245,158,11,0.18)" : "rgba(245, 158, 11, 0.12)" }]}>
+                <Ionicons name="pie-chart-outline" size={18} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.menuSheetItemTitle, { color: colors.text }]}>Expenses & Financial Tracker</Text>
+                <Text style={[styles.menuSheetItemSub, { color: colors.secondary }]}>P&L Ledger & 1-Click CSV Export</Text>
+              </View>
+              {activeOption === "expenses" && <Ionicons name="checkmark" size={18} color="#F59E0B" />}
+            </TouchableOpacity>
+
             <View style={[styles.menuSheetDivider, { backgroundColor: colors.border }]} />
 
             <TouchableOpacity
@@ -1323,7 +1393,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 18, paddingBottom: 40 },
+  screenContent: { padding: 18, paddingBottom: 110 },
   topNavRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
   backButton: {
     width: 38,

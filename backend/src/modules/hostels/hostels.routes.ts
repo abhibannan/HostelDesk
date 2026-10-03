@@ -28,7 +28,14 @@ const updateHostelSchema = hostelSchema.partial().extend({
 
 router.post("/", requireAuth, async (req, res, next) => {
   try {
-    if (req.authUser?.role !== "SUPER_ADMIN" && req.authUser?.role !== "ADMIN") {
+    if (req.authUser?.role === "SUPER_ADMIN") {
+      res.status(403).json({
+        message: "Super Admin can only add and manage administrators. Hostels are created and operated by Hostel Admins.",
+      });
+      return;
+    }
+
+    if (req.authUser?.role !== "ADMIN") {
       res.status(403).json({
         message: "Only administrators can create hostels",
       });
@@ -96,7 +103,13 @@ router.get(
         return;
       }
 
-      if (req.authUser.role === "SUPER_ADMIN" || req.authUser.role === "ADMIN") {
+      if (req.authUser.role === "SUPER_ADMIN") {
+        // Super Admin manages admins and technicals only, not hostel operations
+        res.json({ hostels: [] });
+        return;
+      }
+
+      if (req.authUser.role === "ADMIN") {
         const [assignments, ownedSnapshots] = await Promise.all([
           db.collection("hostelAdmins").where("adminId", "==", req.authUser.id).get(),
           db.collection("hostels").where("ownerId", "==", req.authUser.id).get(),
@@ -117,12 +130,7 @@ router.get(
           });
         }
 
-        // If no hostel is specifically matched, return all hostels so admin has full visibility
-        if (hostelMap.size === 0) {
-          const allSnap = await db.collection("hostels").get();
-          allSnap.docs.forEach((doc) => hostelMap.set(doc.id, { id: doc.id, ...doc.data() }));
-        }
-
+        // Strictly isolated: only return hostels owned or assigned to this admin
         res.json({ hostels: Array.from(hostelMap.values()) });
         return;
       }
@@ -265,9 +273,9 @@ router.patch(
   requireHostelAccess,
   async (req, res, next) => {
     try {
-      if (req.authUser?.role !== "SUPER_ADMIN") {
+      if (req.authUser?.role !== "ADMIN") {
         res.status(403).json({
-          message: "Only Super Admin can update hostels",
+          message: "Only administrators can update hostels",
         });
         return;
       }
@@ -336,9 +344,9 @@ router.post(
   requireHostelAccess,
   async (req, res, next) => {
     try {
-      if (req.authUser?.role !== "SUPER_ADMIN") {
+      if (req.authUser?.role !== "ADMIN") {
         res.status(403).json({
-          message: "Only Super Admin can assign admins",
+          message: "Only administrators can assign staff to a hostel",
         });
         return;
       }
@@ -385,11 +393,11 @@ router.post(
 
       if (
         !admin.exists ||
-        admin.data()?.role !== "ADMIN" ||
+        (admin.data()?.role !== "ADMIN" && admin.data()?.role !== "SUPER_ADMIN") ||
         admin.data()?.status !== "ACTIVE"
       ) {
         res.status(400).json({
-          message: "Active Admin not found",
+          message: "Active Admin or Super Admin not found",
         });
         return;
       }
@@ -481,9 +489,9 @@ router.delete(
   requireHostelAccess,
   async (req, res, next) => {
     try {
-      if (req.authUser?.role !== "SUPER_ADMIN") {
+      if (req.authUser?.role !== "ADMIN") {
         res.status(403).json({
-          message: "Only Super Admin can remove admins",
+          message: "Only administrators can remove staff from a hostel",
         });
         return;
       }

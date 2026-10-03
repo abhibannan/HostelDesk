@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   UIManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Dashboard, Hostel, Payment, Tab } from "../types";
+import { Dashboard, Fee, Hostel, Payment, Renter, Tab } from "../types";
 import { money, statusLabel } from "../utils/formatters";
 import { Header, StatCard, SectionTitle, EmptyState } from "../components/common";
 import { DonutChart, BarChart } from "../components/charts";
@@ -25,22 +25,28 @@ interface DashboardScreenProps {
   dashboard: Dashboard;
   selectedHostel?: Hostel;
   payments: Payment[];
+  fees?: Fee[];
+  renters?: Renter[];
   paymentProofStats: { submitted: number; approved: number; rejected: number };
   recentPayments: Payment[];
   monthlyPaymentBars: { key: string; label: string; value: number }[];
   onRefresh: () => void;
   onNavigate?: (page: Tab) => void;
+  onNavigateToExpenses?: () => void;
 }
 
 export function DashboardScreen({
   dashboard,
   selectedHostel,
   payments,
+  fees = [],
+  renters = [],
   paymentProofStats,
   recentPayments,
   monthlyPaymentBars,
   onRefresh,
   onNavigate,
+  onNavigateToExpenses,
 }: DashboardScreenProps) {
   const { colors, isDark } = useTheme();
 
@@ -104,7 +110,7 @@ export function DashboardScreen({
     },
   ];
 
-  // 4-Column Core Services Grid items
+  // 4 Core Module Services: Distinct, high-utility modules with zero duplicate routes
   const baseServices = [
     {
       id: "hostels",
@@ -123,44 +129,12 @@ export function DashboardScreen({
       onPress: () => onNavigate?.("notifications"),
     },
     {
-      id: "add-room",
-      title: "Add Room",
-      icon: "add-circle-outline" as const,
+      id: "expenses",
+      title: "Expenses",
+      icon: "pie-chart-outline" as const,
       color: "#059669",
       bg: isDark ? "#064E3B" : "#ECFDF5",
-      onPress: () => onNavigate?.("rooms"),
-    },
-    {
-      id: "add-renter",
-      title: "Add Renter",
-      icon: "person-add-outline" as const,
-      color: "#9333EA",
-      bg: isDark ? "#3B0764" : "#FAF5FF",
-      onPress: () => onNavigate?.("renters"),
-    },
-    {
-      id: "dues",
-      title: "Dues & Fees",
-      icon: "receipt-outline" as const,
-      color: "#DC2626",
-      bg: isDark ? "#450A0A" : "#FEF2F2",
-      onPress: () => onNavigate?.("payments"),
-    },
-    {
-      id: "maintenance",
-      title: "Maintenance",
-      icon: "hammer-outline" as const,
-      color: "#EA580C",
-      bg: isDark ? "#431407" : "#FFF7ED",
-      onPress: () => onNavigate?.("repairs"),
-    },
-    {
-      id: "residents",
-      title: "Residents",
-      icon: "id-card-outline" as const,
-      color: "#0891B2",
-      bg: isDark ? "#083344" : "#ECFEFF",
-      onPress: () => onNavigate?.("renters"),
+      onPress: () => (onNavigateToExpenses ? onNavigateToExpenses() : onNavigate?.("payments")),
     },
     {
       id: "settings",
@@ -173,8 +147,8 @@ export function DashboardScreen({
   ];
 
   return (
-    <ScrollView
-      style={[styles.screen, { backgroundColor: colors.background }]}
+      <ScrollView
+        style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled={true}
@@ -212,7 +186,7 @@ export function DashboardScreen({
         </View>
       ) : null}
 
-      {/* ── MakeMyTrip-Style Bento Services Menu ── */}
+      {/* ── Bento Services Menu ── */}
       <View style={styles.bentoSection}>
         {/* Top 4 Elevated Hero Action Cards */}
         <View style={styles.heroRow}>
@@ -239,7 +213,7 @@ export function DashboardScreen({
           ))}
         </View>
 
-        {/* Bottom Unified Bento Services Card */}
+        {/* Bottom Unified Bento Services Card: Core Modules */}
         <View
           style={[
             styles.bentoCard,
@@ -372,7 +346,7 @@ export function DashboardScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 20, paddingBottom: 34 },
+  screenContent: { padding: 20, paddingBottom: 110 },
   propertyCard: {
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -394,7 +368,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 16,
   },
   heroCard: {
     flex: 1,

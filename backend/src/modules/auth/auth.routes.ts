@@ -3,8 +3,18 @@ import { z } from "zod";
 import { firebaseAuth, db } from "../../config/firebase.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
+import { invalidateHostelAccessCache } from "../../middleware/hostel-access.middleware.js";
 import { writeAuditLog } from "../../utils/audit.js";
 import { sendPasswordEmail } from "../../utils/mailer.js";
+import {
+  getSystemTelemetry,
+  runDeepDiagnostics,
+  getSecurityAuditLogs,
+  getSystemLogs,
+  clearSystemLogs,
+  getPlatformConfig,
+  updatePlatformConfig,
+} from "../../services/telemetry.service.js";
 
 const router = Router();
 
@@ -163,6 +173,48 @@ router.patch("/me", requireAuth, async (req, res, next) => {
   }
 });
 
+router.get("/admins", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can list administrators" });
+      return;
+    }
+
+    const [usersSnap, assignmentsSnap, hostelsSnap] = await Promise.all([
+      db.collection("users").get(),
+      db.collection("hostelAdmins").get(),
+      db.collection("hostels").get(),
+    ]);
+
+    const hostelMap = new Map<string, string>();
+    hostelsSnap.docs.forEach((h) => hostelMap.set(h.id, h.data()?.name || "Unnamed Hostel"));
+
+    const adminAssignments = new Map<string, Array<{ hostelId: string; hostelName: string }>>();
+    assignmentsSnap.docs.forEach((doc) => {
+      const data = doc.data();
+      const adminId = String(data.adminId || "");
+      const hostelId = String(data.hostelId || doc.id);
+      if (adminId) {
+        const list = adminAssignments.get(adminId) || [];
+        list.push({ hostelId, hostelName: hostelMap.get(hostelId) || hostelId });
+        adminAssignments.set(adminId, list);
+      }
+    });
+
+    const admins = usersSnap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() } as any))
+      .filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN")
+      .map((admin) => ({
+        ...admin,
+        assignedHostels: adminAssignments.get(admin.id) || [],
+      }));
+
+    res.json({ admins });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/admins", requireAuth, async (req, res, next) => {
   try {
     if (req.authUser?.role !== "SUPER_ADMIN") {
@@ -172,7 +224,7 @@ router.post("/admins", requireAuth, async (req, res, next) => {
 
     const schema = profileSchema.extend({
       email: z.string().email(),
-      password: z.string().min(8).max(128),
+      password: z.string().min(6).max(128),
       phone: z.string().max(30).optional(),
     });
 
@@ -185,12 +237,52 @@ router.post("/admins", requireAuth, async (req, res, next) => {
       return;
     }
 
-    const firebaseUser = await firebaseAuth.createUser({
-      email: parsed.data.email.toLowerCase(),
-      password: parsed.data.password,
-      displayName: `${parsed.data.firstName} ${parsed.data.lastName ?? ""}`.trim(),
-      ...(parsed.data.phone ? { phoneNumber: parsed.data.phone } : {}),
-    });
+    const normalizedEmail = parsed.data.email.toLowerCase().trim();
+
+    // Check if user already exists in Firestore
+    const existingSnap = await db
+      .collection("users")
+      .where("email", "==", normalizedEmail)
+      .limit(1)
+      .get();
+
+    if (!existingSnap.empty) {
+      res.status(409).json({ message: "An account with this email already exists" });
+      return;
+    }
+
+    // Prepare phone number for Firebase Auth (must strictly be E.164 if passed to auth)
+    let authPhoneNumber: string | undefined;
+    if (parsed.data.phone) {
+      const cleaned = parsed.data.phone.replace(/[\s\-()]/g, "");
+      if (/^\+[1-9]\d{6,14}$/.test(cleaned)) {
+        authPhoneNumber = cleaned;
+      }
+    }
+
+    let firebaseUser;
+    try {
+      firebaseUser = await firebaseAuth.createUser({
+        email: normalizedEmail,
+        password: parsed.data.password,
+        displayName: `${parsed.data.firstName} ${parsed.data.lastName ?? ""}`.trim(),
+        ...(authPhoneNumber ? { phoneNumber: authPhoneNumber } : {}),
+      });
+    } catch (createErr: any) {
+      if (createErr?.code === "auth/email-already-in-use") {
+        // User already in Firebase Auth, update credentials and link
+        firebaseUser = await firebaseAuth.getUserByEmail(normalizedEmail);
+        await firebaseAuth.updateUser(firebaseUser.uid, {
+          password: parsed.data.password,
+          displayName: `${parsed.data.firstName} ${parsed.data.lastName ?? ""}`.trim(),
+        });
+      } else {
+        res.status(400).json({
+          message: createErr?.message || "Failed to create authentication user in Firebase",
+        });
+        return;
+      }
+    }
 
     const now = new Date().toISOString();
     const user = {
@@ -219,6 +311,256 @@ router.post("/admins", requireAuth, async (req, res, next) => {
       message: "Admin created successfully",
       user,
     });
+  } catch (error: any) {
+    console.error("ADMIN CREATION ROUTE ERROR:", error);
+    res.status(400).json({
+      message: error?.message || "An unexpected error occurred while creating the admin.",
+    });
+  }
+});
+
+router.patch("/admins/:adminId/status", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can update admin status" });
+      return;
+    }
+
+    const adminId = String(req.params.adminId || "");
+    if (!adminId) {
+      res.status(400).json({ message: "Invalid admin ID" });
+      return;
+    }
+    if (adminId === req.authUser.id) {
+      res.status(400).json({ message: "You cannot change your own status" });
+      return;
+    }
+
+    const { status } = req.body;
+    if (!["ACTIVE", "INACTIVE"].includes(status)) {
+      res.status(400).json({ message: "Status must be ACTIVE or INACTIVE" });
+      return;
+    }
+
+    const userRef = db.collection("users").doc(adminId);
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ message: "Admin not found" });
+      return;
+    }
+
+    await userRef.update({
+      status,
+      updatedAt: new Date().toISOString(),
+    });
+
+    res.json({ message: `Admin status updated to ${status}` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/admins/:adminId", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can delete admins" });
+      return;
+    }
+
+    const adminId = String(req.params.adminId || "");
+    if (!adminId) {
+      res.status(400).json({ message: "Invalid admin ID" });
+      return;
+    }
+    if (adminId === req.authUser.id) {
+      res.status(400).json({ message: "You cannot delete your own Super Admin account" });
+      return;
+    }
+
+    const userRef = db.collection("users").doc(adminId);
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ message: "Admin not found" });
+      return;
+    }
+
+    const data = snap.data();
+    const firebaseUid = data?.firebaseUid || adminId;
+
+    // Delete hostel admin assignments
+    const assignmentsSnap = await db
+      .collection("hostelAdmins")
+      .where("adminId", "==", adminId)
+      .get();
+
+    const batch = db.batch();
+    assignmentsSnap.docs.forEach((d) => batch.delete(d.ref));
+    batch.delete(userRef);
+    await batch.commit();
+
+    try {
+      await firebaseAuth.deleteUser(firebaseUid);
+    } catch (fbErr) {
+      console.warn("Firebase Auth deletion warning:", fbErr);
+    }
+
+    await writeAuditLog({
+      actorId: req.authUser.id,
+      action: "DELETE_ADMIN",
+      entityType: "USER",
+      entityId: adminId,
+    });
+
+    res.json({ message: "Admin removed successfully" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/super-admin/system-status", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can access technical system status" });
+      return;
+    }
+
+    const telemetry = await getSystemTelemetry();
+    res.json(telemetry);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/super-admin/run-diagnostics", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can run diagnostics" });
+      return;
+    }
+
+    const diagnosticResult = await runDeepDiagnostics();
+    res.json(diagnosticResult);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/super-admin/audit-logs", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can access security audit logs" });
+      return;
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 5), 100);
+    const logs = await getSecurityAuditLogs(limit);
+    res.json({ logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/super-admin/clear-cache", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can flush cache" });
+      return;
+    }
+
+    invalidateHostelAccessCache();
+
+    res.json({
+      message: "Server cache invalidated successfully",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/super-admin/platform-overview", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Access denied" });
+      return;
+    }
+
+    // Return ONLY administrator counts — no business/hostel data
+    const usersSnap = await db.collection("users").get();
+    const admins = usersSnap.docs.filter((d) => {
+      const r = d.data().role;
+      return r === "ADMIN" || r === "SUPER_ADMIN";
+    });
+
+    res.json({
+      totalAdmins: admins.length,
+      activeAdmins: admins.filter((a) => a.data().status === "ACTIVE").length,
+      inactiveAdmins: admins.filter((a) => a.data().status !== "ACTIVE").length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/super-admin/system-logs", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can access system error logs" });
+      return;
+    }
+
+    const level = typeof req.query.level === "string" ? req.query.level : undefined;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 5), 100);
+    const logs = getSystemLogs(level, limit);
+    res.json({ logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/super-admin/system-logs", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can clear system error logs" });
+      return;
+    }
+
+    clearSystemLogs();
+    res.json({ message: "System logs buffer cleared successfully" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/super-admin/platform-config", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can view platform configuration" });
+      return;
+    }
+
+    res.json(getPlatformConfig());
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/super-admin/platform-config", requireAuth, async (req, res, next) => {
+  try {
+    if (req.authUser?.role !== "SUPER_ADMIN") {
+      res.status(403).json({ message: "Only Super Admin can update platform configuration" });
+      return;
+    }
+
+    const updated = await updatePlatformConfig(req.body, req.authUser.email || "Super Admin");
+    await writeAuditLog({
+      actorId: req.authUser.id,
+      action: "UPDATE_PLATFORM_CONFIG",
+      entityType: "SYSTEM",
+      metadata: req.body,
+    });
+
+    res.json({ message: "Platform configuration updated successfully", config: updated });
   } catch (error) {
     next(error);
   }

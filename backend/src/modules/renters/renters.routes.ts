@@ -318,6 +318,42 @@ router.post(
 
       const firstFeeMonth = joiningDate.slice(0, 7);
 
+      /* Explicitly prevent adding Admins / Super Admins as renters */
+      const normalizedEmail = email.toLowerCase().trim();
+      const adminByEmailSnap = await db
+        .collection("users")
+        .where("email", "==", normalizedEmail)
+        .limit(1)
+        .get();
+
+      if (!adminByEmailSnap.empty) {
+        const existingData = adminByEmailSnap.docs[0]?.data();
+        if (existingData?.role === "SUPER_ADMIN" || existingData?.role === "ADMIN") {
+          res.status(400).json({
+            message: "This email belongs to an Administrator. Administrators cannot be added as renters.",
+          });
+          return;
+        }
+      }
+
+      if (phone) {
+        const adminByPhoneSnap = await db
+          .collection("users")
+          .where("phone", "==", phone.trim())
+          .limit(1)
+          .get();
+
+        if (!adminByPhoneSnap.empty) {
+          const existingData = adminByPhoneSnap.docs[0]?.data();
+          if (existingData?.role === "SUPER_ADMIN" || existingData?.role === "ADMIN") {
+            res.status(400).json({
+              message: "This phone number belongs to an Administrator. Administrators cannot be added as renters.",
+            });
+            return;
+          }
+        }
+      }
+
       /* Check Firebase account */
 
       try {
@@ -1276,23 +1312,11 @@ router.delete(
 
       const batch = db.batch();
       feesSnap.docs.forEach((doc) => {
-        batch.update(doc.ref, {
-          renterName: renterFullName,
-          renterEmail,
-          renterPhone,
-          isArchivedRenter: true,
-          updatedAt: new Date().toISOString(),
-        });
+        batch.delete(doc.ref);
       });
 
       paymentsSnap.docs.forEach((doc) => {
-        batch.update(doc.ref, {
-          renterName: renterFullName,
-          renterEmail,
-          renterPhone,
-          isArchivedRenter: true,
-          updatedAt: new Date().toISOString(),
-        });
+        batch.delete(doc.ref);
       });
 
       if (!feesSnap.empty || !paymentsSnap.empty) {

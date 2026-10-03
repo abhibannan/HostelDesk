@@ -17,9 +17,11 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { COLORS } from "../constants/theme";
 import { useTheme } from "../contexts/ThemeContext";
 import { API_URL, parseJsonResponse } from "../services/api";
 import { Fee, Hostel, Notification, Payment, Repair, Renter, User } from "../types";
@@ -53,6 +55,10 @@ interface RenterPortalScreenProps {
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   }) => Promise<void>;
   scheduleLocalNotification?: (title: string, body: string, data?: Record<string, unknown>) => Promise<void>;
+  biometricLabel?: string;
+  isBiometricsEnabled?: boolean;
+  isBiometricsSupported?: boolean;
+  onToggleBiometrics?: (enable: boolean) => Promise<boolean>;
 }
 
 const RENTER_TABS = ["details", "fees", "repairs", "notices", "settings"] as const;
@@ -72,12 +78,23 @@ export function RenterPortalScreen({
   onLogout,
   onSubmitProof,
   onSubmitRepair,
+  biometricLabel = "Biometric",
+  isBiometricsEnabled = false,
+  isBiometricsSupported = false,
+  onToggleBiometrics,
 }: RenterPortalScreenProps) {
   const [activeTab, setActiveTab] = useState<RenterTab>("details");
   const { colors: theme, setTheme, isDark } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const [containerWidth, setContainerWidth] = useState(windowWidth || Dimensions.get("window").width);
   const pagerRef = useRef<ScrollView>(null);
+
+  // Repair Rating Modal State
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingTargetRepairId, setRatingTargetRepairId] = useState("");
+  const [ratingValue, setRatingValue] = useState(5);
+  const [ratingFeedback, setRatingFeedback] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   // Automatically clean up resolved maintenance notifications from the renter's feed
   React.useEffect(() => {
@@ -1609,7 +1626,63 @@ export function RenterPortalScreen({
                 </TouchableOpacity>
               </View>
 
-              {/* 3. Account Actions Card */}
+              {/* 3. Security & Biometrics Card */}
+              <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[s.cardHeader, { borderBottomColor: theme.border }]}>
+                  <Ionicons
+                    name={biometricLabel.toLowerCase().includes("face") ? "scan-outline" : "finger-print-outline"}
+                    size={20}
+                    color={theme.primary}
+                  />
+                  <Text style={[s.cardTitle, { color: theme.text }]}>Security & Biometrics</Text>
+                </View>
+                <Text style={{ fontSize: 13, color: theme.secondary, marginBottom: 14, lineHeight: 19 }}>
+                  {isBiometricsSupported
+                    ? `Unlock StayNexa instantly using your device ${biometricLabel} without entering passwords repeatedly.`
+                    : "Biometric hardware is not available or enrolled on this device. Please set up a fingerprint or Face ID in device settings."}
+                </Text>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    backgroundColor: theme.surfaceSecondary,
+                    borderRadius: 10,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 10 }}>
+                    <Ionicons
+                      name={biometricLabel.toLowerCase().includes("face") ? "scan-outline" : "finger-print-outline"}
+                      size={24}
+                      color={isBiometricsEnabled ? COLORS.success : theme.primary}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: "600", color: theme.text }}>
+                        {biometricLabel} Unlock
+                      </Text>
+                      <Text style={{ fontSize: 12, color: theme.secondary }}>
+                        {isBiometricsEnabled ? "Enabled — app locks when closed" : "Disabled"}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isBiometricsEnabled}
+                    disabled={!isBiometricsSupported}
+                    onValueChange={(val) => {
+                      if (onToggleBiometrics) {
+                        void onToggleBiometrics(val);
+                      }
+                    }}
+                    trackColor={{ false: theme.border, true: COLORS.primary }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              </View>
+
+              {/* 4. Account Actions Card */}
               <View style={[s.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <View style={[s.cardHeader, { borderBottomColor: theme.border }]}>
                   <Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />
@@ -2119,7 +2192,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["colors"], isDark: bool
     },
     scrollContent: {
       padding: 16,
-      paddingBottom: 40,
+      paddingBottom: 110,
     },
     welcomeBanner: {
       flexDirection: "row",

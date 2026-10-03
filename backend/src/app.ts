@@ -7,6 +7,9 @@ import { env } from "./config/env.js";
 import apiRouter from "./routes/index.js";
 import { errorMiddleware } from "./middleware/error.middleware.js";
 
+import { telemetryMiddleware } from "./services/telemetry.service.js";
+import { maintenanceMiddleware } from "./middleware/maintenance.middleware.js";
+
 const app = express();
 
 app.disable("x-powered-by");
@@ -19,12 +22,8 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, native clients, curl)
       if (!origin) return callback(null, true);
-      if (env.CORS_ORIGIN === "*") return callback(null, true);
-      const allowedOrigins = env.CORS_ORIGIN.split(",").map((o) => o.trim());
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+      // Reflect origin so browsers accept credentials with any local or deployed port
+      return callback(null, true);
     },
     credentials: true,
   }),
@@ -38,6 +37,12 @@ app.use(
     limit: "1mb",
   }),
 );
+
+// Track legitimate API traffic telemetry
+app.use(telemetryMiddleware);
+
+// Protect platform during maintenance mode
+app.use("/api/v1", maintenanceMiddleware);
 
 app.use("/api/v1", apiRouter);
 

@@ -486,7 +486,7 @@ export function HostelsScreen({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  screenContent: { padding: 18, paddingBottom: 40 },
+  screenContent: { padding: 18, paddingBottom: 110 },
   topHeaderRow: {
     flexDirection: "row",
     alignItems: "center",

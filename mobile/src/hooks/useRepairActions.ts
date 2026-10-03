@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert } from "react-native";
 import { MaintenanceTask, Repair } from "../types";
+import { API_URL } from "../services/api";
 
 export interface RepairActionsCallbacks {
   selectedHostelId: string;
@@ -23,31 +24,71 @@ export function useRepairActions(cb: RepairActionsCallbacks) {
   const [newRenterId, setNewRenterId] = useState("");
   const [newRoomId, setNewRoomId] = useState("");
 
+  const [resolvedPhotoUri, setResolvedPhotoUri] = useState<string | null>(null);
+
   function openStatusModal(repair: Repair) {
     setSelectedRepair(repair);
     setRepairStatus(repair.status || "IN_PROGRESS");
     setAdminNotes(repair.adminNotes || "");
+    setResolvedPhotoUri(repair.resolvedPhotoUrl || null);
     setShowStatusModal(true);
   }
 
-  async function updateRepairStatus(repairId?: string, overrideStatus?: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED", notes?: string) {
+  async function updateRepairStatus(
+    repairId?: string,
+    overrideStatus?: "SUBMITTED" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED",
+    notes?: string,
+    photoUri?: string | null,
+  ) {
     const id = repairId || selectedRepair?.id;
     if (!id || !cb.selectedHostelId) return;
 
     const statusToSet = overrideStatus || repairStatus;
     const notesToSet = notes !== undefined ? notes : adminNotes;
+    const photoToUpload = photoUri !== undefined ? photoUri : resolvedPhotoUri;
 
     setRepairSaving(true);
     try {
+      let resolvedPhotoUrl = selectedRepair?.resolvedPhotoUrl || undefined;
+
+      // If a local image was picked/taken, upload it first
+      if (photoToUpload && (photoToUpload.startsWith("file:") || photoToUpload.startsWith("content:"))) {
+        const form = new FormData();
+        const filename = photoToUpload.split("/").pop() || "repair_completion.jpg";
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : `image/jpeg`;
+
+        form.append("file", {
+          uri: photoToUpload,
+          name: filename,
+          type,
+        } as any);
+
+        const uploadRes = await cb.request<any>("/uploads", {
+          method: "POST",
+          body: form,
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (uploadRes?.file?.id) {
+          resolvedPhotoUrl = `${API_URL}/uploads/${uploadRes.file.id}`;
+        }
+      }
+
       await cb.request(`/hostels/${cb.selectedHostelId}/repairs/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
           status: statusToSet,
           adminNotes: notesToSet.trim() || undefined,
+          ...(resolvedPhotoUrl ? { resolvedPhotoUrl } : {}),
         }),
       });
+
       setShowStatusModal(false);
       setSelectedRepair(null);
+      setResolvedPhotoUri(null);
       await cb.onRefresh();
       Alert.alert("Success", `Repair marked as ${statusToSet.replace("_", " ")}.`);
     } catch (err) {
@@ -336,6 +377,8 @@ export function useRepairActions(cb: RepairActionsCallbacks) {
     setRepairStatus,
     adminNotes,
     setAdminNotes,
+    resolvedPhotoUri,
+    setResolvedPhotoUri,
     repairSaving,
     openStatusModal,
     updateRepairStatus,

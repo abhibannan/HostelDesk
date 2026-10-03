@@ -180,22 +180,29 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
         Authorization: `Bearer ${idToken}`,
       };
 
-      // 1. Fetch /auth/me and /hostels in parallel
-      const [meResponse, hostelsResponse] = await Promise.all([
-        fetch(`${API_URL}/auth/me`, { headers }),
-        fetch(`${API_URL}/hostels`, { headers }),
-      ]);
+      // 1. Fetch /auth/me with retry if cold start or transient network glitch
+      let meResponse: Response | null = null;
+      let meData: any = null;
 
-      const [meData, hostelsData] = await Promise.all([
-        jsonResponse(meResponse),
-        jsonResponse(hostelsResponse),
-      ]);
+      try {
+        meResponse = await fetch(`${API_URL}/auth/me`, { headers });
+        meData = await jsonResponse(meResponse);
+      } catch (firstErr) {
+        // Cold start retry after 1.2s delay
+        try {
+          await new Promise((r) => setTimeout(r, 1200));
+          meResponse = await fetch(`${API_URL}/auth/me`, { headers });
+          meData = await jsonResponse(meResponse);
+        } catch (secondErr) {
+          throw new Error("Unable to reach StayNexa servers. Please check your internet connection.");
+        }
+      }
 
-      if (!meResponse.ok) {
+      if (!meResponse || !meResponse.ok) {
         throw new Error(
           String(
             (meData as Record<string, unknown>)?.message ||
-            "Unable to verify account.",
+            "Unable to verify account profile. Please check credentials or contact admin.",
           ),
         );
       }
@@ -204,33 +211,24 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       const user = (me.user || me) as User;
       const role = user?.role;
 
-      /*
-       * Validate roles
-       */
-      if (expectedRole === "RENTER" && role !== "RENTER") {
-        await signOut(auth);
-        await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => { });
-        throw new Error(
-          "This account is not registered as a renter. Please login using the Admin tab.",
-        );
+      // 2. Fetch /hostels safely (defaults to [] if empty or request fails)
+      let hostelData: Hostel[] = [];
+      try {
+        const hostelsResponse = await fetch(`${API_URL}/hostels`, { headers });
+        if (hostelsResponse.ok) {
+          const hostelsData = await jsonResponse(hostelsResponse);
+          hostelData = listFrom<Hostel>(hostelsData, "hostels");
+        }
+      } catch {
+        hostelData = [];
       }
 
-      if (
-        expectedRole === "ADMIN" &&
-        role !== "ADMIN" &&
-        role !== "SUPER_ADMIN" &&
-        role !== "REPAIR_PERSON"
-      ) {
-        await signOut(auth);
-        await AsyncStorage.removeItem(SESSION_CACHE_KEY).catch(() => { });
-        throw new Error(
-          "This account does not have Admin or Staff access. Please login using the Renter (Google) tab.",
-        );
+      // Automatically sync UI login tab to the user's actual database role
+      if (role === "RENTER") {
+        setLoginRole("RENTER");
+      } else {
+        setLoginRole("ADMIN");
       }
-
-      const hostelData = hostelsResponse.ok
-        ? listFrom<Hostel>(hostelsData, "hostels")
-        : [];
 
       /*
        * Save authenticated user and token immediately.
@@ -554,17 +552,47 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
   }, [handleAuthenticatedUser]);
 
   /*
+   * Helper to format Firebase and auth errors into user-friendly messages
+   */
+  function formatAuthError(err: unknown, currentRole: "RENTER" | "ADMIN"): string {
+    if (!err) return "Login failed. Please check your credentials.";
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("auth/invalid-credential") ||
+      msg.includes("auth/wrong-password") ||
+      msg.includes("auth/user-not-found") ||
+      msg.includes("auth/invalid-login-credentials")
+    ) {
+      if (currentRole === "RENTER") {
+        return "Invalid credentials. If you are an Admin, please switch to the 'Hostel Admin' tab at the top. If you forgot your password, tap 'Need to set or forgot password?' below.";
+      }
+      return "Invalid credentials. If you are a Resident, please switch to the 'Resident' tab at the top. If you forgot your password, tap 'Forgot password? Send Reset Email' below.";
+    }
+    if (msg.includes("auth/too-many-requests")) {
+      return "Too many failed login attempts. Please wait 2 minutes or reset your password.";
+    }
+    if (msg.includes("auth/invalid-email")) {
+      return "Please enter a valid email address.";
+    }
+    if (msg.includes("auth/user-disabled")) {
+      return "This user account has been disabled. Please contact your hostel administrator.";
+    }
+    if (msg.includes("Network request failed") || msg.includes("network-request-failed")) {
+      return "Network connection issue. Please check your internet connection.";
+    }
+    return msg.replace(/^Firebase:\s*Error\s*\((auth\/[^)]+)\)\.?/i, "Login failed ($1). Please check credentials.");
+  }
+
+  /*
    * ============================================================
-   * RENTER EMAIL LOGIN
+   * RENTER EMAIL / MOBILE LOGIN
    * ============================================================
    */
   const loginRenterWithEmail = useCallback(async () => {
-    if (
-      !renterEmailInput.trim() ||
-      !renterPasswordInput
-    ) {
+    const rawInput = renterEmailInput.trim();
+    if (!rawInput || !renterPasswordInput) {
       setError(
-        "Please enter your registered email and password.",
+        "Please enter your registered email or mobile number and password.",
       );
       return;
     }
@@ -572,27 +600,65 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
     setLoading(true);
     setError("");
 
+    let resolvedEmail = rawInput.toLowerCase();
+    let credential;
+
     try {
-      const credential =
-        await signInWithEmailAndPassword(
+      // If identifier has no @, resolve mobile number via backend
+      if (!rawInput.includes("@")) {
+        const lookupRes = await fetch(`${API_URL}/auth/login-lookup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: rawInput }),
+        });
+        const lookupData = (await jsonResponse(lookupRes)) as {
+          email?: string;
+          message?: string;
+        };
+        if (lookupRes.ok && lookupData.email) {
+          resolvedEmail = lookupData.email.trim().toLowerCase();
+        } else {
+          throw new Error(
+            lookupData.message ||
+              "No account found registered with this mobile number.",
+          );
+        }
+      }
+
+      try {
+        credential = await signInWithEmailAndPassword(
           auth,
-          renterEmailInput.trim(),
+          resolvedEmail,
           renterPasswordInput,
         );
-
-      const idToken =
-        await credential.user.getIdToken();
-
-      await handleAuthenticatedUser(
-        idToken,
-        "RENTER",
-      );
+      } catch (signInErr: any) {
+        if (
+          renterPasswordInput !== renterPasswordInput.trim() &&
+          String(signInErr?.message || "").includes("invalid-credential")
+        ) {
+          credential = await signInWithEmailAndPassword(
+            auth,
+            resolvedEmail,
+            renterPasswordInput.trim(),
+          );
+        } else {
+          throw signInErr;
+        }
+      }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Renter login failed.",
-      );
+      setError(formatAuthError(err, "RENTER"));
+      setLoading(false);
+      return;
+    }
+
+    // Firebase Auth credentials verified. Now load user profile.
+    try {
+      const idToken = await credential.user.getIdToken();
+      await handleAuthenticatedUser(idToken, "RENTER");
+      setError("");
+    } catch (err: any) {
+      await signOut(auth).catch(() => {});
+      setError(err?.message || "Failed to load resident profile. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -613,7 +679,7 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
         targetEmail ||
         renterEmailInput ||
         email
-      ).trim();
+      ).trim().toLowerCase();
 
       if (!toEmail) {
         setError(
@@ -626,31 +692,33 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       setError("");
 
       try {
-        // 1. Call backend API to reset password and email new password to user
-        const res = await fetch(`${API_URL}/auth/forgot-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: toEmail }),
-        });
-        const resData = (await jsonResponse(res)) as { message?: string };
-
-        // 2. Also attempt Firebase client password reset email
-        try {
-          await sendPasswordResetEmail(auth, toEmail);
-        } catch {
-          // Firebase client fallback ignore
-        }
-
+        // Send official Firebase password reset link via Google infrastructure
+        await sendPasswordResetEmail(auth, toEmail);
         Alert.alert(
-          "Password Sent",
-          resData?.message ||
-            `A new password has been sent to ${toEmail}. Open the email to get your password, then return here to log in.`,
+          "Reset Email Sent",
+          `A password reset link has been sent to ${toEmail}. Please check your inbox and spam folder, set your password, then return here to log in.`,
         );
-      } catch (err: any) {
-        setError(
-          err?.message ||
-          "Failed to send password setup email.",
-        );
+      } catch (fbErr: any) {
+        const fbMsg = String(fbErr?.message || "");
+        if (fbMsg.includes("user-not-found") || fbMsg.includes("invalid-credential")) {
+          setError(`No account found registered with ${toEmail}.`);
+        } else {
+          // Fallback to backend reset endpoint
+          try {
+            const res = await fetch(`${API_URL}/auth/forgot-password`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: toEmail }),
+            });
+            const resData = (await jsonResponse(res)) as { message?: string };
+            Alert.alert(
+              "Password Setup Sent",
+              resData?.message || `If ${toEmail} is registered, a reset email has been sent.`,
+            );
+          } catch {
+            setError(formatAuthError(fbErr, "RENTER"));
+          }
+        }
       } finally {
         setLoading(false);
       }
@@ -675,8 +743,10 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
     setLoading(true);
     setError("");
 
+    let resolvedEmail = rawIdentifier.toLowerCase();
+    let credential;
+
     try {
-      let resolvedEmail = rawIdentifier;
       // If identifier has no @, resolve mobile number via backend
       if (!rawIdentifier.includes("@")) {
         const lookupRes = await fetch(`${API_URL}/auth/login-lookup`, {
@@ -695,29 +765,43 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
               "No account found registered with this mobile number.",
           );
         }
-        resolvedEmail = lookupData.email;
+        resolvedEmail = (lookupData.email || "").trim().toLowerCase();
       }
 
-      const credential =
-        await signInWithEmailAndPassword(
+      try {
+        credential = await signInWithEmailAndPassword(
           auth,
           resolvedEmail,
           password,
         );
-
-      const idToken =
-        await credential.user.getIdToken();
-
-      await handleAuthenticatedUser(
-        idToken,
-        "ADMIN",
-      );
+      } catch (signInErr: any) {
+        if (
+          password !== password.trim() &&
+          String(signInErr?.message || "").includes("invalid-credential")
+        ) {
+          credential = await signInWithEmailAndPassword(
+            auth,
+            resolvedEmail,
+            password.trim(),
+          );
+        } else {
+          throw signInErr;
+        }
+      }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Login failed. Please check your credentials.",
-      );
+      setError(formatAuthError(err, "ADMIN"));
+      setLoading(false);
+      return;
+    }
+
+    // Firebase Auth credentials verified. Now load admin profile.
+    try {
+      const idToken = await credential.user.getIdToken();
+      await handleAuthenticatedUser(idToken, "ADMIN");
+      setError("");
+    } catch (err: any) {
+      await signOut(auth).catch(() => {});
+      setError(err?.message || "Failed to load admin profile. Please try again.");
     } finally {
       setLoading(false);
     }

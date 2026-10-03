@@ -10,6 +10,9 @@ import repairsRouter from "../modules/repairs/repairs.routes.js";
 import notificationsRouter from "../modules/notifications/notifications.routes.js";
 import dashboardRouter from "../modules/dashboard/dashboard.routes.js";
 import uploadsRouter from "../modules/uploads/uploads.routes.js";
+import expensesRouter from "../modules/expenses/expenses.routes.js";
+
+import { getPlatformConfig } from "../services/telemetry.service.js";
 
 const router = Router();
 
@@ -18,6 +21,15 @@ router.get("/health", (_req, res) => {
     status: "ok",
     service: "StayNexa API",
     database: "Firebase Firestore",
+  });
+});
+
+router.get("/platform/status", (_req, res) => {
+  const config = getPlatformConfig();
+  res.json({
+    maintenanceMode: config.maintenanceMode,
+    maintenanceNotice: config.maintenanceNotice,
+    alertBanner: config.alertBanner,
   });
 });
 
@@ -31,5 +43,6 @@ router.use("/notifications", notificationsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/uploads", uploadsRouter);
 router.use("/hostels", payment_proofs_routes);
+router.use("/hostels", expensesRouter);
 
 export default router;

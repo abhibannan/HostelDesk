@@ -110,6 +110,27 @@ export type User = {
   status?: string;
 };
 
+export type PlatformOverview = {
+  totalHostels: number;
+  totalAdmins: number;
+  activeAdmins: number;
+  totalRooms: number;
+  totalBeds: number;
+  totalActiveRenters: number;
+};
+
+export type AdminAccount = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName?: string | null;
+  phone?: string | null;
+  role: "SUPER_ADMIN" | "ADMIN";
+  status: "ACTIVE" | "INACTIVE";
+  createdAt: string;
+  assignedHostels?: Array<{ hostelId: string; hostelName: string }>;
+};
+
 export type RepairPerson = {
   id: string;
   hostelId: string;
@@ -150,8 +171,29 @@ export type Repair = {
   adminNotes?: string | null;
   assignedTo?: string | null;
   assignedRepairPersonId?: string | null;
+  beforePhotoUrl?: string | null;
+  resolvedPhotoUrl?: string | null;
+  rating?: number | null;
+  feedback?: string | null;
+  ratedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type ExpenseCategory = "ELECTRICITY" | "WATER" | "SALARY" | "INTERNET" | "MAINTENANCE" | "FOOD" | "OTHER";
+
+export type Expense = {
+  id: string;
+  hostelId: string;
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  month?: string;
+  notes?: string;
+  receiptUrl?: string;
+  paidBy?: string;
+  createdAt?: string;
 };
 
 export type MaintenanceTask = {

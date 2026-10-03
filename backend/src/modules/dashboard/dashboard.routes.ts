@@ -273,85 +273,14 @@ router.get(
       // ---------------------------------------------------
 
       if (role === "SUPER_ADMIN") {
-        const hostelsSnapshot = await db
-          .collection("hostels")
-          .where(
-            "ownerId",
-            "==",
-            req.authUser!.id,
-          )
-          .get();
-
-        const hostelIds =
-          hostelsSnapshot.docs.map(
-            (doc) => doc.id,
-          );
-
-        const hostelStats =
-          await Promise.all(
-            hostelIds.map((hostelId) =>
-              calculateDashboard(
-                hostelId,
-              ),
-            ),
-          );
-
-        const overall = emptyStats();
-
-        hostelStats.forEach((stats) => {
-          overall.totalRooms +=
-            stats.totalRooms;
-          overall.activeRooms +=
-            stats.activeRooms;
-          overall.availableRooms +=
-            stats.availableRooms;
-          overall.occupiedRooms +=
-            stats.occupiedRooms;
-
-          overall.activeRenters +=
-            stats.activeRenters;
-
-          overall.totalFees +=
-            stats.totalFees;
-          overall.paidFees +=
-            stats.paidFees;
-          overall.outstandingFees +=
-            stats.outstandingFees;
-          overall.pendingFees +=
-            stats.pendingFees;
-          overall.partiallyPaidFees +=
-            stats.partiallyPaidFees;
-          overall.overdueFees +=
-            stats.overdueFees;
-
-          overall.totalPayments +=
-            stats.totalPayments;
-          overall.paidPayments +=
-            stats.paidPayments;
-          overall.pendingPayments +=
-            stats.pendingPayments;
-
-          overall.totalRepairRequests +=
-            stats.totalRepairRequests;
-          overall.submittedRepairs +=
-            stats.submittedRepairs;
-          overall.inProgressRepairs +=
-            stats.inProgressRepairs;
-          overall.resolvedRepairs +=
-            stats.resolvedRepairs;
-          overall.cancelledRepairs +=
-            stats.cancelledRepairs;
-        });
-
+        // Super Admin manages technical infrastructure and admins only — no hostel metrics
         res.json({
           dashboard: {
-            ...overall,
-            hostelCount:
-              hostelIds.length,
-            hostels: hostelStats,
+            ...emptyStats(),
+            hostelCount: 0,
+            hostels: [],
           },
         });
-
         return;
       }
 
@@ -460,11 +389,14 @@ router.get(
   requireAuth,
   async (req, res, next) => {
     try {
-      if (
-        req.authUser?.role !==
-          "SUPER_ADMIN" &&
-        req.authUser?.role !== "ADMIN"
-      ) {
+      if (req.authUser?.role === "SUPER_ADMIN") {
+        res.status(403).json({
+          message: "Super Admin cannot access hostel business metrics",
+        });
+        return;
+      }
+
+      if (req.authUser?.role !== "ADMIN") {
         res.status(403).json({
           message: "Access denied",
         });
@@ -492,16 +424,23 @@ router.get(
         return;
       }
 
-      // SUPER_ADMIN and ADMIN have access across hostels
-      const isAuthorized =
-        req.authUser?.role === "SUPER_ADMIN" ||
-        req.authUser?.role === "ADMIN";
+      const hostelData = hostel.data() || {};
+      const isOwner = hostelData.ownerId === req.authUser.id;
 
-      if (!isAuthorized) {
-        res.status(403).json({
-          message: "Access denied",
-        });
-        return;
+      if (!isOwner) {
+        const assignmentSnap = await db
+          .collection("hostelAdmins")
+          .where("adminId", "==", req.authUser.id)
+          .where("hostelId", "==", hostelId)
+          .limit(1)
+          .get();
+
+        if (assignmentSnap.empty) {
+          res.status(403).json({
+            message: "You do not have administrative access to this hostel.",
+          });
+          return;
+        }
       }
 
       const dashboard =

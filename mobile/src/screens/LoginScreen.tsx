@@ -161,7 +161,10 @@ export function LoginScreen({
                 <TextInput
                   style={[styles.inputWithIconText, { color: colors.text }]}
                   value={renterEmailInput}
-                  onChangeText={setRenterEmailInput}
+                  onChangeText={(t) => {
+                    setRenterEmailInput(t);
+                    if (error) setError("");
+                  }}
                   placeholder="Enter registered email"
                   placeholderTextColor={colors.secondary}
                   keyboardType="email-address"
@@ -180,7 +183,10 @@ export function LoginScreen({
                 <TextInput
                   style={[styles.inputWithIconText, { color: colors.text }]}
                   value={renterPasswordInput}
-                  onChangeText={setRenterPasswordInput}
+                  onChangeText={(t) => {
+                    setRenterPasswordInput(t);
+                    if (error) setError("");
+                  }}
                   placeholder="Enter your password"
                   placeholderTextColor={colors.secondary}
                   secureTextEntry={!showRenterPassword}
@@ -232,7 +238,10 @@ export function LoginScreen({
                 <TextInput
                   style={[styles.inputWithIconText, { color: colors.text }]}
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(t) => {
+                    setEmail(t);
+                    if (error) setError("");
+                  }}
                   placeholder="Enter email or mobile number"
                   placeholderTextColor={colors.secondary}
                   autoCapitalize="none"
@@ -250,7 +259,10 @@ export function LoginScreen({
                 <TextInput
                   style={[styles.inputWithIconText, { color: colors.text }]}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(t) => {
+                    setPassword(t);
+                    if (error) setError("");
+                  }}
                   placeholder="Enter your password"
                   placeholderTextColor={colors.secondary}
                   secureTextEntry={!showPassword}
