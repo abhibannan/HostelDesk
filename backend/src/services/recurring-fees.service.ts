@@ -2,6 +2,18 @@ import { db } from "../config/firebase.js";
 import { createNotification } from "../modules/notifications/notifications.server.js";
 import { writeAuditLog } from "../utils/audit.js";
 
+function getCreatedAtIso(val: unknown): string {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  if (typeof (val as any).toDate === "function") {
+    return (val as any).toDate().toISOString();
+  }
+  if (typeof (val as any).seconds === "number") {
+    return new Date((val as any).seconds * 1000).toISOString();
+  }
+  return "";
+}
+
 /**
  * Service to handle recurring monthly fees and automatic rent notifications
  * based on renter's recurring due date.
@@ -138,7 +150,8 @@ export async function checkAndProcessRecurringFees(): Promise<{
         const todayObj = new Date(`${currentDateStr}T00:00:00`);
         const diffDays = Math.round((dueDateObj.getTime() - todayObj.getTime()) / (1000 * 60 * 60 * 24));
 
-        // Check if fee is overdue
+
+        // If the fee is already overdue, mark it as OVERDUE
         if (
           (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID" || feeStatus === "OVERDUE") &&
           diffDays < 0
@@ -149,92 +162,6 @@ export async function checkAndProcessRecurringFees(): Promise<{
               updatedAt: now.toISOString(),
             });
             markedOverdue++;
-          }
-
-          // Check if an overdue notification was already sent in the last 20 hours
-          const existingNotifSnapshot = await db
-            .collection("notifications")
-            .where("userId", "==", userId)
-            .where("type", "==", "FEE_OVERDUE")
-            .where("entityId", "==", currentFeeId)
-            .limit(10)
-            .get();
-
-          const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
-          const sentRecently = existingNotifSnapshot.docs.some((doc) => {
-            const data = doc.data();
-            return (data.createdAt || "") >= twentyHoursAgo;
-          });
-
-          if (!sentRecently) {
-            try {
-              const daysOverdue = Math.abs(diffDays);
-              const overdueNotice = daysOverdue === 1
-                ? `was due yesterday (${effectiveDueDateStr})`
-                : `is overdue by ${daysOverdue} days (Due date: ${effectiveDueDateStr})`;
-
-              await createNotification({
-                userId,
-                type: "FEE_OVERDUE",
-                title: daysOverdue === 1
-                  ? `Rent Payment Overdue: ₹${feeAmount}`
-                  : `Overdue Rent Alert (${daysOverdue}d): ₹${feeAmount}`,
-                message: `Notice from Hostel Admin: Your fee of ₹${feeAmount} for ${currentMonthStr} ${overdueNotice}. Please clear your payment immediately to avoid penalties.`,
-                hostelId,
-                entityType: "FEE",
-                entityId: currentFeeId,
-              });
-              notificationsSent++;
-            } catch (notifErr) {
-              console.error(`Failed to send FEE_OVERDUE notification to user ${userId}:`, notifErr);
-            }
-          }
-        } else if (
-          (feeStatus === "PENDING" || feeStatus === "PARTIALLY_PAID") &&
-          // Start reminders automatically 5 days before the payment due date
-          diffDays >= 0 &&
-          diffDays <= 5
-        ) {
-          // Check if a reminder was sent in the last 20 hours
-          const existingNotifSnapshot = await db
-            .collection("notifications")
-            .where("userId", "==", userId)
-            .where("type", "==", "FEE_DUE")
-            .where("entityId", "==", currentFeeId)
-            .limit(10)
-            .get();
-
-          const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
-          const sentRecently = existingNotifSnapshot.docs.some((doc) => {
-            const data = doc.data();
-            return (data.createdAt || "") >= twentyHoursAgo;
-          });
-
-          if (!sentRecently) {
-            try {
-              const dueNotice = diffDays === 0
-                ? "is due today!"
-                : diffDays === 1
-                ? `is due tomorrow (${effectiveDueDateStr})`
-                : `is due in ${diffDays} days (${effectiveDueDateStr})`;
-
-              await createNotification({
-                userId,
-                type: "FEE_DUE",
-                title: diffDays === 0
-                  ? `Rent Due Today: ₹${feeAmount}`
-                  : diffDays === 1
-                  ? `Rent Due Tomorrow: ₹${feeAmount}`
-                  : `Rent Due in ${diffDays} Days: ₹${feeAmount}`,
-                message: `Reminder: Your monthly rent of ₹${feeAmount} ${dueNotice}. Please clear your payment before the due date.`,
-                hostelId,
-                entityType: "FEE",
-                entityId: currentFeeId,
-              });
-              notificationsSent++;
-            } catch (notifErr) {
-              console.error(`Failed to send 5-day reminder notification to user ${userId}:`, notifErr);
-            }
           }
         }
       }
@@ -281,7 +208,9 @@ export async function checkAndProcessRecurringFees(): Promise<{
           .limit(10)
           .get();
 
-        const alreadySentOverdue = overdueSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
+        const alreadySentOverdue = overdueSnap.docs.some(
+          (d) => getCreatedAtIso(d.data().createdAt) >= twentyHoursAgo,
+        );
         if (!alreadySentOverdue) {
           const daysOverdue = Math.abs(fDiff);
           const overdueNotice = daysOverdue === 1
@@ -316,7 +245,9 @@ export async function checkAndProcessRecurringFees(): Promise<{
           .limit(10)
           .get();
 
-        const alreadySentDue = existingSnap.docs.some((d) => (d.data().createdAt || "") >= twentyHoursAgo);
+        const alreadySentDue = existingSnap.docs.some(
+          (d) => getCreatedAtIso(d.data().createdAt) >= twentyHoursAgo,
+        );
         if (!alreadySentDue) {
           const dueNotice = fDiff === 0
             ? "is due today!"

@@ -2053,7 +2053,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["colors"], isDark: bool
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: 16,
-      paddingTop: Platform.OS === "ios" ? 54 : 44,
+      paddingTop: 12,
       paddingBottom: 14,
       borderBottomWidth: 1,
     },

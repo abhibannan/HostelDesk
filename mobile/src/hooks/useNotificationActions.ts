@@ -119,7 +119,10 @@ export function useNotificationActions(cb: NotificationActionsCallbacks) {
           style: "destructive",
           onPress: async () => {
             try {
-              await cb.request("/notifications/me/clear-all", {
+              const clearPath = cb.selectedHostelId
+                ? `/notifications/me/clear-all?hostelId=${encodeURIComponent(cb.selectedHostelId)}`
+                : "/notifications/me/clear-all";
+              await cb.request(clearPath, {
                 method: "DELETE",
               });
               await cb.onRefresh();

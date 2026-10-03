@@ -7,29 +7,40 @@ import { isExpoPushToken, sendExpoPushNotifications } from "../../services/expo-
 
 const router = Router();
 
-const pushTokenSchema = z.object({
-  token: z.string().min(1),
-  platform: z.enum(["ios", "android"]).optional(),
-});
+const pushTokenSchema = z
+  .object({
+    token: z.string().min(1).optional(),
+    pushToken: z.string().min(1).optional(),
+    platform: z.enum(["ios", "android"]).optional(),
+  })
+  .refine((data) => Boolean(data.token || data.pushToken), {
+    message: "Either token or pushToken is required",
+  });
 
 router.post("/push-token", requireAuth, async (req, res, next) => {
   try {
     const parsed = pushTokenSchema.safeParse(req.body);
-    if (!parsed.success || !isExpoPushToken(parsed.data.token)) {
+    if (!parsed.success) {
+      res.status(400).json({ message: "Invalid push token payload" });
+      return;
+    }
+
+    const token = (parsed.data.token || parsed.data.pushToken)!.trim();
+    if (!isExpoPushToken(token)) {
       res.status(400).json({ message: "Invalid Expo push token" });
       return;
     }
 
-    const tokenId = createHash("sha256").update(parsed.data.token).digest("hex");
+    const tokenId = createHash("sha256").update(token).digest("hex");
     await db.collection("pushTokens").doc(tokenId).set({
       id: tokenId,
       userId: req.authUser!.id,
-      token: parsed.data.token,
+      token,
       platform: parsed.data.platform ?? null,
       updatedAt: new Date().toISOString(),
     }, { merge: true });
 
-    res.status(204).end();
+    res.status(200).json({ success: true, message: "Push token registered successfully" });
   } catch (error) {
     next(error);
   }
@@ -445,6 +456,31 @@ router.delete(
   requireAuth,
   async (req, res, next) => {
     try {
+      const isAdmin = req.authUser?.role === "ADMIN" || req.authUser?.role === "SUPER_ADMIN";
+      const hostelId = typeof req.query.hostelId === "string" ? req.query.hostelId : null;
+
+      if (isAdmin && hostelId) {
+        const [hostelAnnouncements, allAnnouncements] = await Promise.all([
+          db.collection("notifications").where("hostelId", "==", hostelId).where("entityType", "==", "BROADCAST").get(),
+          db.collection("notifications").where("hostelId", "==", hostelId).where("userId", "==", "ALL").get(),
+        ]);
+        const seen = new Set<string>();
+        const batch = db.batch();
+        let cleared = 0;
+        for (const snap of [hostelAnnouncements, allAnnouncements]) {
+          for (const doc of snap.docs) {
+            if (!seen.has(doc.id)) {
+              seen.add(doc.id);
+              batch.delete(doc.ref);
+              cleared++;
+            }
+          }
+        }
+        if (cleared > 0) await batch.commit();
+        res.json({ message: "Hostel announcements cleared successfully", count: cleared });
+        return;
+      }
+
       const [personalSnapshot, broadcastSnapshot] = await Promise.all([
         db.collection("notifications").where("userId", "==", req.authUser!.id).get(),
         db.collection("notifications").where("userId", "==", "ALL").get(),
@@ -508,14 +544,25 @@ router.delete(
       const isOwner = notifData?.userId === req.authUser!.id;
       const isAdmin = req.authUser?.role === "ADMIN" || req.authUser?.role === "SUPER_ADMIN";
 
-      if (notifData?.userId === "ALL") {
+      if (notifData?.userId === "ALL" || notifData?.entityType === "BROADCAST") {
         if (isAdmin) {
-          await notifRef.delete();
+          const delBatch = db.batch();
+          delBatch.delete(notifRef);
+          // Also clean up any duplicate docs created with identical title, message & hostelId
+          if (notifData.title && notifData.message) {
+            const dupsSnap = await db
+              .collection("notifications")
+              .where("title", "==", notifData.title)
+              .where("message", "==", notifData.message)
+              .get();
+            dupsSnap.docs.forEach((d) => delBatch.delete(d.ref));
+          }
+          await delBatch.commit();
           res.json({ message: "Announcement deleted successfully", notificationId });
           return;
         }
         // Dismiss broadcast notification for this renter
-        const dismissedBy = Array.isArray(notifData.dismissedBy) ? [...notifData.dismissedBy] : [];
+        const dismissedBy = Array.isArray(notifData?.dismissedBy) ? [...notifData.dismissedBy] : [];
         if (!dismissedBy.includes(req.authUser!.id)) {
           dismissedBy.push(req.authUser!.id);
           await notifRef.update({ dismissedBy });
@@ -598,21 +645,6 @@ router.post(
         const userId = renter.userId;
         if (!userId || seenUserIds.has(userId)) continue;
         seenUserIds.add(userId);
-
-        const notifRef = db.collection("notifications").doc();
-        batch.set(notifRef, {
-          id: notifRef.id,
-          userId,
-          type: type || "ANNOUNCEMENT",
-          title: String(title).trim(),
-          message: String(message).trim(),
-          hostelId: renter.hostelId || null,
-          entityType: "BROADCAST",
-          entityId: null,
-          read: false,
-          readAt: null,
-          createdAt: now,
-        });
         sentCount++;
       }
 
@@ -748,6 +780,7 @@ router.post(
       const now = new Date().toISOString();
       let sentCount = 0;
       const renterUserMap = new Map<string, string>();
+      const pushMessages: Array<{ userId: string; title: string; body: string; data?: Record<string, string> }> = [];
 
       for (const feeDoc of feesSnapshot.docs) {
         const fee = feeDoc.data();
@@ -782,10 +815,18 @@ router.post(
           createdAt: now,
         });
         sentCount++;
+
+        pushMessages.push({
+          userId,
+          title: isOverdue ? `Overdue Rent Reminder: ₹${remainingAmount}` : `Fee Payment Reminder: ₹${remainingAmount}`,
+          body: `Notice from Hostel Admin: Your fee of ₹${remainingAmount} for ${fee.month} is ${isOverdue ? 'overdue' : 'pending'}. Due date: ${fee.dueDate}. Please clear your dues.`,
+          data: { type: isOverdue ? "FEE_OVERDUE" : "FEE_DUE", entityType: "FEE", entityId: String(feeDoc.id) },
+        });
       }
 
       if (sentCount > 0) {
         await batch.commit();
+        await sendExpoPushNotifications(pushMessages);
       }
 
       res.status(201).json({

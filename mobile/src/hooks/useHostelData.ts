@@ -181,10 +181,10 @@ export function useHostelData(): HostelDataState & HostelDataActions {
         setPayments(fetchedPayments);
         setRepairs(fetchedRepairs);
 
-        // Only show master broadcast docs in the admin notification feed
+        // Only show master broadcast announcements in the admin notification feed
         const allNotifs = listFrom<Notification>(notifData, "notifications");
         const broadcastNotifs = allNotifs.filter(
-          (n) => n.userId === "ALL" || n.entityType === "BROADCAST",
+          (n) => n.userId === "ALL" && n.entityType !== "FEE" && n.type !== "FEE_DUE" && n.type !== "FEE_OVERDUE",
         );
         setNotifications(broadcastNotifs);
         await refreshDashboardOnly(hostelId);

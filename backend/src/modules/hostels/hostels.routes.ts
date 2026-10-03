@@ -644,6 +644,24 @@ router.get(
           if (seen.has(doc.id)) continue;
           seen.add(doc.id);
           const data = doc.data();
+
+          // Exclude personal resident fee notifications from admin announcements feed
+          if (
+            data.entityType === "FEE" ||
+            data.type === "FEE_DUE" ||
+            data.type === "FEE_OVERDUE"
+          ) {
+            continue;
+          }
+
+          // Respect dismissedBy for the current user
+          if (
+            Array.isArray(data.dismissedBy) &&
+            data.dismissedBy.includes(req.authUser!.id)
+          ) {
+            continue;
+          }
+
           notifications.push({
             id: doc.id,
             userId: String(data.userId ?? ""),

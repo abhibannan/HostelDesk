@@ -222,10 +222,13 @@ function AppContent() {
   // Wire the ref once auth is available
   setCurrentRenterDocRef.current = auth.setCurrentRenterDoc;
 
+  const [hasRemotePush, setHasRemotePush] = useState(false);
+
   useNotificationSync(
     data.notifications,
     scheduleLocalNotification,
     Boolean(auth.token),
+    hasRemotePush,
   );
 
   // ── Room actions ────────────────────────────────────────────────────────────
@@ -364,18 +367,24 @@ function AppContent() {
     if (!auth.token) return;
 
     void (async () => {
-      const pushToken = await getExpoPushToken();
-      if (!pushToken) return;
-      await fetch(`${API_URL}/notifications/push-token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${auth.token}`,
-        },
-        body: JSON.stringify({ pushToken, platform: Platform.OS }),
-      }).catch(() => {
+      try {
+        const pushToken = await getExpoPushToken();
+        if (!pushToken) return;
+        const res = await fetch(`${API_URL}/notifications/push-token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`,
+          },
+          body: JSON.stringify({ token: pushToken, pushToken, platform: Platform.OS }),
+        });
+        if (res.ok) {
+          setHasRemotePush(true);
+        }
+      } catch (err) {
         // Retry on a future app start when the network is available.
-      });
+        console.warn("[PushToken] Registration network error:", err);
+      }
     })();
   }, [auth.token, getExpoPushToken]);
 
@@ -578,10 +587,10 @@ function AppContent() {
   // ─────────────────────────────────────────────────────────────────────────
   if (auth.currentUser?.role === "RENTER") {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.card }]}>
         <StatusBar
           barStyle={isDark ? "light-content" : "dark-content"}
-          backgroundColor={colors.background}
+          backgroundColor={colors.card}
         />
         <RenterPortalScreen
           user={auth.currentUser}

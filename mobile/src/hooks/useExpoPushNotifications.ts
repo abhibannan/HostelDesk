@@ -92,10 +92,6 @@ export function useExpoPushNotifications() {
         return null;
       }
 
-      if (Platform.OS === "android" && __DEV__) {
-        return null;
-      }
-
       const existing = await Notifications.getPermissionsAsync();
       const permission =
         existing.status === "granted"
@@ -105,8 +101,8 @@ export function useExpoPushNotifications() {
 
       const projectId =
         Constants.expoConfig?.extra?.eas?.projectId ??
-        Constants.easConfig?.projectId;
-      if (!projectId) return null;
+        Constants.easConfig?.projectId ??
+        "2b6b1dbc-f72f-421f-80dc-40137f441017";
 
       const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
       return tokenResult.data;

@@ -58,6 +58,7 @@ export function useNotificationSync(
   notifications: Notification[],
   scheduleLocalNotification: ScheduleLocalFn,
   isLoggedIn: boolean,
+  hasRemotePush: boolean = false,
 ) {
   // In-memory cache of seen IDs (initialized lazily from AsyncStorage)
   const seenIdsRef = useRef<Set<string> | null>(null);
@@ -80,7 +81,8 @@ export function useNotificationSync(
 
   // Core sync: compare notifications vs seen IDs, fire OS notifications for new ones
   useEffect(() => {
-    if (!isLoggedIn || notifications.length === 0) return;
+    // If remote push is active, remote notifications are already delivered to OS tray.
+    if (!isLoggedIn || notifications.length === 0 || hasRemotePush) return;
 
     let cancelled = false;
 
