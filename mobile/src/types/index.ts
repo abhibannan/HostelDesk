@@ -104,6 +104,8 @@ export type User = {
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   role: "SUPER_ADMIN" | "ADMIN" | "RENTER" | "REPAIR_PERSON";
   status?: string;
 };

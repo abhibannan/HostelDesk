@@ -90,9 +90,23 @@ router.get("/me", requireAuth, async (req, res) => {
   res.status(200).json({ user: req.authUser });
 });
 
+const updateProfileSchema = z.object({
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().max(100).optional(),
+  phone: z.string().trim().max(30).optional(),
+  guardianName: z.string().trim().max(100).optional(),
+  guardianPhone: z.string().trim().max(30).optional(),
+  address: z.string().trim().max(500).optional(),
+  city: z.string().trim().max(100).optional(),
+  state: z.string().trim().max(100).optional(),
+  pincode: z.string().trim().max(20).optional(),
+  emergencyContactName: z.string().trim().max(100).optional(),
+  emergencyContactPhone: z.string().trim().max(30).optional(),
+});
+
 router.patch("/me", requireAuth, async (req, res, next) => {
   try {
-    const parsed = profileSchema.partial().safeParse(req.body);
+    const parsed = updateProfileSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
         message: "Invalid profile data",
@@ -101,18 +115,47 @@ router.patch("/me", requireAuth, async (req, res, next) => {
       return;
     }
 
-    const updates = {
-      ...(parsed.data.firstName !== undefined && { firstName: parsed.data.firstName }),
-      ...(parsed.data.lastName !== undefined && {
-        lastName: parsed.data.lastName.trim() || null,
-      }),
-      updatedAt: new Date().toISOString(),
+    const data = parsed.data;
+    const now = new Date().toISOString();
+
+    const userUpdates: Record<string, any> = {
+      ...(data.firstName !== undefined && { firstName: data.firstName }),
+      ...(data.lastName !== undefined && { lastName: data.lastName.trim() || null }),
+      ...(data.phone !== undefined && { phone: data.phone.trim() || null }),
+      ...(data.guardianName !== undefined && { guardianName: data.guardianName.trim() || null }),
+      ...(data.guardianPhone !== undefined && { guardianPhone: data.guardianPhone.trim() || null }),
+      ...(data.address !== undefined && { address: data.address.trim() || null }),
+      ...(data.city !== undefined && { city: data.city.trim() || null }),
+      ...(data.state !== undefined && { state: data.state.trim() || null }),
+      ...(data.pincode !== undefined && { pincode: data.pincode.trim() || null }),
+      ...(data.emergencyContactName !== undefined && { emergencyContactName: data.emergencyContactName.trim() || null }),
+      ...(data.emergencyContactPhone !== undefined && { emergencyContactPhone: data.emergencyContactPhone.trim() || null }),
+      updatedAt: now,
     };
 
-    await db.collection("users").doc(req.authUser!.id).update(updates);
+    await db.collection("users").doc(req.authUser!.id).update(userUpdates);
+
+    // If this user is a renter, also sync their renter doc
+    const renterDocs = await db
+      .collection("renters")
+      .where("userId", "==", req.authUser!.id)
+      .get();
+
+    if (!renterDocs.empty) {
+      const renterUpdates: Record<string, any> = {
+        updatedAt: now,
+        ...(data.guardianName !== undefined && { guardianName: data.guardianName.trim() || "" }),
+        ...(data.guardianPhone !== undefined && { guardianPhone: data.guardianPhone.trim() || "" }),
+      };
+      await Promise.all(
+        renterDocs.docs.map((doc) => doc.ref.update(renterUpdates)),
+      );
+    }
+
     const updated = await db.collection("users").doc(req.authUser!.id).get();
 
     res.json({
+      message: "Profile updated successfully",
       user: { id: updated.id, ...updated.data() },
     });
   } catch (error) {

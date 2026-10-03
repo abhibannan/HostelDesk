@@ -45,6 +45,10 @@ export function NotificationsScreen({
   onBack,
 }: NotificationsScreenProps) {
   const { colors, isDark } = useTheme();
+  const currentHostelNotifications = selectedHostel?.id
+    ? notifications.filter((n) => !n.hostelId || n.hostelId === "ALL" || n.hostelId === selectedHostel.id)
+    : notifications;
+
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
@@ -140,44 +144,44 @@ export function NotificationsScreen({
 
         {/* Action Row */}
         <View style={styles.actionRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Broadcast History</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
-              {notifications.length} announcement{notifications.length === 1 ? "" : "s"} sent
-            </Text>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {notifications.length > 0 && onClearAll ? (
-              <TouchableOpacity
-                style={styles.clearAllBtn}
-                onPress={onClearAll}
-              >
-                <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
-                <Text style={styles.clearAllText}>Clear All</Text>
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity
-              style={styles.smallPrimaryButton}
-              onPress={() => setShowBroadcastModal(true)}
-            >
-              <Ionicons name="megaphone" size={15} color="#FFFFFF" />
-              <Text style={styles.smallPrimaryText}>New Broadcast</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Broadcast History</Text>
+                  <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
+                    {currentHostelNotifications.length} announcement{currentHostelNotifications.length === 1 ? "" : "s"} sent
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  {currentHostelNotifications.length > 0 && onClearAll ? (
+                    <TouchableOpacity
+                      style={styles.clearAllBtn}
+                      onPress={onClearAll}
+                    >
+                      <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
+                      <Text style={styles.clearAllText}>Clear All</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    style={styles.smallPrimaryButton}
+                    onPress={() => setShowBroadcastModal(true)}
+                  >
+                    <Ionicons name="megaphone" size={15} color="#FFFFFF" />
+                    <Text style={styles.smallPrimaryText}>New Broadcast</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-        {/* Notification Cards */}
-        {notifications.length === 0 ? (
-          <EmptyState
-            icon="notifications-outline"
-            title="No Broadcasts Sent Yet"
-            description="Tap 'New Broadcast' above to send your first announcement or notice to residents."
-          />
-        ) : (
-          notifications.map((notif) => {
-            const typeInfo = getTypeIconAndColor(notif.type);
+              {/* Notification Cards */}
+              {currentHostelNotifications.length === 0 ? (
+                <EmptyState
+                  icon="notifications-outline"
+                  title="No Broadcasts Sent Yet"
+                  description="Tap 'New Broadcast' above to send your first announcement or notice to residents."
+                />
+              ) : (
+                currentHostelNotifications.map((notif) => {
+                  const typeInfo = getTypeIconAndColor(notif.type);
 
-            return (
+                  return (
               <View key={notif.id} style={[styles.notifCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.notifCardTop}>
                   <View style={[styles.typeBadge, { backgroundColor: typeInfo.bg }]}>

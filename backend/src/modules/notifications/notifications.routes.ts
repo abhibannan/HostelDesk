@@ -185,12 +185,34 @@ router.get(
         readAt: string | null;
       };
 
+      let userHostelIds: string[] = [];
+      if (req.authUser?.role === "RENTER") {
+        const renterSnap = await db
+          .collection("renters")
+          .where("userId", "==", req.authUser.id)
+          .where("status", "==", "ACTIVE")
+          .get();
+        userHostelIds = renterSnap.docs
+          .map((d) => d.data().hostelId)
+          .filter(Boolean);
+      }
+
       const seenIds = new Set<string>();
       const allDocs = [...personalSnapshot.docs, ...broadcastSnapshot.docs].filter((doc) => {
         if (seenIds.has(doc.id)) return false;
         seenIds.add(doc.id);
         const data = doc.data();
         if (Array.isArray(data.dismissedBy) && data.dismissedBy.includes(req.authUser!.id)) {
+          return false;
+        }
+        // Scope broadcasts to resident's hostel
+        if (
+          req.authUser?.role === "RENTER" &&
+          userHostelIds.length > 0 &&
+          data.hostelId &&
+          data.hostelId !== "ALL" &&
+          !userHostelIds.includes(data.hostelId)
+        ) {
           return false;
         }
         return true;

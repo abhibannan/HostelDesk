@@ -145,21 +145,18 @@ async function calculateDashboard(
 
   roomsSnapshot.docs.forEach((doc) => {
     const data = doc.data();
-
     roomIds.add(doc.id);
-
-    if (data.status === "ACTIVE") {
+    const status = String(data.status || "ACTIVE").toUpperCase();
+    if (status === "ACTIVE") {
       stats.activeRooms += 1;
     }
   });
 
-  // A room is occupied when at least one ACTIVE renter
-  // is assigned to that room. Multiple renters in one room
-  // still count as one occupied room.
   rentersSnapshot.docs.forEach((doc) => {
     const data = doc.data();
+    const status = String(data.status || "ACTIVE").toUpperCase();
 
-    if (data.status === "ACTIVE") {
+    if (status === "ACTIVE") {
       stats.activeRenters += 1;
 
       if (
@@ -173,12 +170,9 @@ async function calculateDashboard(
     }
   });
 
-  stats.occupiedRooms =
-    activeRoomIds.size;
-
+  stats.occupiedRooms = activeRoomIds.size;
   stats.availableRooms = Math.max(
-    stats.totalRooms -
-      stats.occupiedRooms,
+    stats.totalRooms - stats.occupiedRooms,
     0,
   );
 
@@ -189,30 +183,19 @@ async function calculateDashboard(
   feesSnapshot.docs.forEach((doc) => {
     const data = doc.data();
 
-    const amount = Number(
-      data.amount ?? 0,
-    );
-
-    const paidAmount = Number(
-      data.paidAmount ?? 0,
-    );
+    const amount = Number(data.amount ?? 0);
+    const paidAmount = Number(data.paidAmount ?? 0);
 
     stats.totalFees += amount;
-    stats.paidFees += paidAmount;
-    stats.outstandingFees += Math.max(
-      amount - paidAmount,
-      0,
-    );
+    stats.outstandingFees += Math.max(amount - paidAmount, 0);
 
-    const status = String(
-      data.status ?? "",
-    ).toUpperCase();
+    const status = String(data.status ?? "").toUpperCase();
 
-    if (status === "PENDING") {
+    if (status === "PAID") {
+      stats.paidFees += 1;
+    } else if (status === "PENDING") {
       stats.pendingFees += 1;
-    } else if (
-      status === "PARTIALLY_PAID"
-    ) {
+    } else if (status === "PARTIALLY_PAID") {
       stats.partiallyPaidFees += 1;
     } else if (status === "OVERDUE") {
       stats.overdueFees += 1;
@@ -226,20 +209,15 @@ async function calculateDashboard(
   paymentsSnapshot.docs.forEach((doc) => {
     const data = doc.data();
 
-    const amount = Number(
-      data.amount ?? 0,
-    );
+    const amount = Number(data.amount ?? 0);
+    const status = String(data.status ?? "").toUpperCase();
 
-    const status = String(
-      data.status ?? "",
-    ).toUpperCase();
+    stats.totalPayments += 1;
 
-    stats.totalPayments += amount;
-
-    if (status === "PAID") {
-      stats.paidPayments += amount;
-    } else if (status === "PENDING") {
-      stats.pendingPayments += amount;
+    if (status === "PAID" || status === "APPROVED") {
+      stats.paidPayments += 1;
+    } else if (status === "PENDING" || status === "SUBMITTED") {
+      stats.pendingPayments += 1;
     }
   });
 

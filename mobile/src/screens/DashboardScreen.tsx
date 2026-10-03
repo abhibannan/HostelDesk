@@ -296,8 +296,11 @@ export function DashboardScreen({
       <SectionTitle title="Fee status" />
       <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Text style={[styles.chartTitle, { color: colors.text }]}>Current fee collection</Text>
-        <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Live totals from the backend</Text>
-        <DonutChart data={feeChart} centerText={String(dashboard.totalFees)} centerSub="fees" />
+        <DonutChart
+          data={feeChart}
+          centerText={String(dashboard.paidFees + dashboard.pendingFees + dashboard.partiallyPaidFees + dashboard.overdueFees)}
+          centerSub="fees"
+        />
         <View style={[styles.outstandingBox, { backgroundColor: colors.dangerLight }]}>
           <Text style={[styles.outstandingLabel, { color: colors.danger }]}>Outstanding amount</Text>
           <Text style={[styles.outstandingAmount, { color: colors.danger }]}>{money(dashboard.outstandingFees)}</Text>
