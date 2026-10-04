@@ -531,10 +531,11 @@ export const LIGHT_COLORS = THEME_PRESETS[ACTIVE_PRESET].light;
 export const DARK_COLORS = THEME_PRESETS[ACTIVE_PRESET].dark;
 
 export type ThemeColors = typeof LIGHT_COLORS;
-export type ThemeMode = "light" | "dark";
+export type ThemeMode = "light" | "dark" | "system";
 
 export const COLORS: ThemeColors = { ...LIGHT_COLORS };
 
-export function applyTheme(mode: ThemeMode) {
-  Object.assign(COLORS, mode === "dark" ? DARK_COLORS : LIGHT_COLORS);
+export function applyTheme(mode: ThemeMode, systemColorScheme?: string | null) {
+  const effectiveDark = mode === "dark" || (mode === "system" && systemColorScheme === "dark");
+  Object.assign(COLORS, effectiveDark ? DARK_COLORS : LIGHT_COLORS);
 }

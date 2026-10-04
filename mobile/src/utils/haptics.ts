@@ -4,7 +4,17 @@ import { Platform } from "react-native";
 export const haptic = {
   light: () => {
     if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {
+        Haptics.selectionAsync().catch(() => {});
+      });
+    }
+  },
+  cardPress: () => {
+    if (Platform.OS !== "web") {
+      // Crisp click for cards on both Android and iOS
+      Haptics.selectionAsync().catch(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      });
     }
   },
   medium: () => {

@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { haptic } from "../utils/haptics";
 
 type ToastType = "success" | "error" | "warning" | "info";
 
@@ -74,6 +75,16 @@ export function ToastProvider({ children, isDark = false }: { children: React.Re
     animValues.current[id] = anim;
 
     setToasts((prev) => [...prev.slice(-2), { id, message, title, type }]); // max 3 visible
+
+    if (type === "success") {
+      haptic.success();
+    } else if (type === "error") {
+      haptic.error();
+    } else if (type === "warning") {
+      haptic.warning();
+    } else {
+      haptic.light();
+    }
 
     Animated.spring(anim, {
       toValue: 1,

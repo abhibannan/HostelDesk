@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Animated, TouchableWithoutFeedback } from "react-native";
-import Svg, { Circle, G, Line, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from "react-native-svg";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -26,7 +27,7 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
     Animated.timing(animation, {
       toValue: 1,
       duration: 1200,
-      useNativeDriver: false, // SVG props often require false
+      useNativeDriver: false,
     }).start();
   };
 
@@ -38,10 +39,10 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
   const circles = data.map((item, index) => {
     const fraction = total > 0 ? Math.max(0, item.value) / total : 0;
     const dash = fraction * circumference;
-    
+
     const strokeDasharray = animation.interpolate({
       inputRange: [0, 1],
-      outputRange: [`0 ${circumference}`, `${dash} ${circumference - dash}`]
+      outputRange: [`0 ${circumference}`, `${dash} ${circumference - dash}`],
     });
 
     const element = (
@@ -78,10 +79,23 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
               strokeWidth={strokeWidth}
             />
             {circles}
-            <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="18" fontWeight="800" fill={colors.text}>
+            <SvgText
+              x={size / 2}
+              y={size / 2 - 2}
+              textAnchor="middle"
+              fontSize="18"
+              fontWeight="800"
+              fill={colors.text}
+            >
               {centerText}
             </SvgText>
-            <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="10" fill={colors.secondary}>
+            <SvgText
+              x={size / 2}
+              y={size / 2 + 16}
+              textAnchor="middle"
+              fontSize="10"
+              fill={colors.secondary}
+            >
               {centerSub}
             </SvgText>
           </Svg>
@@ -92,11 +106,253 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
           <View key={item.label} style={styles.legendRow}>
             <View style={styles.legendLeft}>
               <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-              <Text style={[styles.legendLabel, { color: colors.secondary }]}>{item.label}</Text>
+              <Text style={[styles.legendLabel, { color: colors.secondary }]}>
+                {item.label}
+              </Text>
             </View>
             <Text style={[styles.legendValue, { color: colors.text }]}>{item.value}</Text>
           </View>
         ))}
+      </View>
+    </View>
+  );
+}
+
+export interface MonthlyTrendData {
+  month: string;
+  collected: number;
+  outstanding: number;
+}
+
+interface RevenueTrendChartProps {
+  data: MonthlyTrendData[];
+}
+
+/** Revenue Trend Chart: Dual bar comparison of Collected vs Outstanding over months */
+export function RevenueTrendChart({ data }: RevenueTrendChartProps) {
+  const { colors, isDark } = useTheme();
+  const width = 330;
+  const height = 190;
+  const paddingLeft = 24;
+  const paddingRight = 16;
+  const paddingTop = 20;
+  const paddingBottom = 32;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  const maxVal = Math.max(
+    1,
+    ...data.flatMap((d) => [d.collected, d.outstanding])
+  );
+
+  const groupGap = 16;
+  const groupWidth = data.length > 0 ? (chartWidth - groupGap * (data.length - 1)) / data.length : 0;
+  const barWidth = Math.max(6, (groupWidth - 4) / 2);
+
+  return (
+    <View style={styles.trendContainer}>
+      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+        {/* Grid lines */}
+        <Line x1={paddingLeft} y1={paddingTop} x2={width - paddingRight} y2={paddingTop} stroke={colors.border} strokeWidth="1" strokeDasharray="4,4" />
+        <Line x1={paddingLeft} y1={paddingTop + chartHeight / 2} x2={width - paddingRight} y2={paddingTop + chartHeight / 2} stroke={colors.border} strokeWidth="1" strokeDasharray="4,4" />
+        <Line x1={paddingLeft} y1={paddingTop + chartHeight} x2={width - paddingRight} y2={paddingTop + chartHeight} stroke={colors.border} strokeWidth="1" />
+
+        {data.map((item, index) => {
+          const groupX = paddingLeft + index * (groupWidth + groupGap);
+
+          const hCollected = (item.collected / maxVal) * chartHeight;
+          const yCollected = paddingTop + chartHeight - hCollected;
+
+          const hOutstanding = (item.outstanding / maxVal) * chartHeight;
+          const yOutstanding = paddingTop + chartHeight - hOutstanding;
+
+          return (
+            <G key={item.month}>
+              {/* Collected Bar (Green / Primary) */}
+              <Rect
+                x={groupX}
+                y={yCollected}
+                width={barWidth}
+                height={Math.max(3, hCollected)}
+                rx="4"
+                fill="#10B981"
+              />
+              {/* Outstanding Bar (Amber / Coral) */}
+              <Rect
+                x={groupX + barWidth + 3}
+                y={yOutstanding}
+                width={barWidth}
+                height={Math.max(3, hOutstanding)}
+                rx="4"
+                fill="#F43F5E"
+              />
+              {/* Month Label */}
+              <SvgText
+                x={groupX + barWidth}
+                y={height - 12}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="600"
+                fill={colors.secondary}
+              >
+                {item.month}
+              </SvgText>
+            </G>
+          );
+        })}
+      </Svg>
+
+      {/* Legend */}
+      <View style={styles.trendLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendBox, { backgroundColor: "#10B981" }]} />
+          <Text style={[styles.legendText, { color: colors.secondary }]}>Collected</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendBox, { backgroundColor: "#F43F5E" }]} />
+          <Text style={[styles.legendText, { color: colors.secondary }]}>Outstanding</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** Occupancy Gauge: Radial Arc progress gauge showing % fill per hostel */
+export function OccupancyGauge({
+  percentage,
+  occupiedBeds,
+  totalBeds,
+}: {
+  percentage: number;
+  occupiedBeds: number;
+  totalBeds: number;
+}) {
+  const { colors, isDark } = useTheme();
+  const radius = 54;
+  const strokeWidth = 14;
+  const normalized = Math.min(100, Math.max(0, percentage));
+  const arcLength = Math.PI * radius; // 180 degree semi-circle
+  const strokeDashoffset = arcLength * (1 - normalized / 100);
+
+  const gaugeColor =
+    normalized >= 85 ? "#10B981" : normalized >= 60 ? "#3B82F6" : "#F59E0B";
+
+  return (
+    <View style={styles.gaugeContainer}>
+      <Svg width={140} height={85} viewBox="0 0 140 85">
+        {/* Background track (semi-circle) */}
+        <Path
+          d="M 15 75 A 55 55 0 0 1 125 75"
+          fill="none"
+          stroke={colors.surfaceSecondary}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        {/* Active Gauge Fill */}
+        <Path
+          d="M 15 75 A 55 55 0 0 1 125 75"
+          fill="none"
+          stroke={gaugeColor}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${arcLength}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+        />
+        <SvgText
+          x="70"
+          y="62"
+          textAnchor="middle"
+          fontSize="22"
+          fontWeight="800"
+          fill={colors.text}
+        >
+          {`${Math.round(percentage)}%`}
+        </SvgText>
+        <SvgText
+          x="70"
+          y="77"
+          textAnchor="middle"
+          fontSize="9"
+          fontWeight="600"
+          fill={colors.secondary}
+        >
+          OCCUPANCY
+        </SvgText>
+      </Svg>
+
+      <Text style={[styles.gaugeDetails, { color: colors.secondary }]}>
+        <Text style={{ fontWeight: "700", color: colors.text }}>{occupiedBeds}</Text> of{" "}
+        <Text style={{ fontWeight: "700", color: colors.text }}>{totalBeds}</Text> beds filled
+      </Text>
+    </View>
+  );
+}
+
+/** Month-over-Month Comparison Card */
+export function MonthOverMonthCard({
+  thisMonthAmount,
+  lastMonthAmount,
+}: {
+  thisMonthAmount: number;
+  lastMonthAmount: number;
+}) {
+  const { colors, isDark } = useTheme();
+
+  const diff = thisMonthAmount - lastMonthAmount;
+  const percentChange =
+    lastMonthAmount > 0 ? (diff / lastMonthAmount) * 100 : thisMonthAmount > 0 ? 100 : 0;
+  const isPositive = diff >= 0;
+
+  return (
+    <View
+      style={[
+        styles.momCard,
+        {
+          backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : colors.surfaceSecondary,
+          borderColor: colors.border,
+        },
+      ]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.momTitle, { color: colors.secondary }]}>
+          Month-over-Month Growth
+        </Text>
+        <Text style={[styles.momValue, { color: colors.text }]}>
+          ₹{thisMonthAmount.toLocaleString()}{" "}
+          <Text style={{ fontSize: 11, fontWeight: "400", color: colors.secondary }}>
+            vs ₹{lastMonthAmount.toLocaleString()} last mo.
+          </Text>
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.badge,
+          {
+            backgroundColor: isPositive
+              ? isDark
+                ? "rgba(16, 185, 129, 0.2)"
+                : "#DCFCE7"
+              : isDark
+              ? "rgba(239, 68, 68, 0.2)"
+              : "#FEE2E2",
+          },
+        ]}
+      >
+        <Ionicons
+          name={isPositive ? "trending-up" : "trending-down"}
+          size={14}
+          color={isPositive ? "#16A34A" : "#DC2626"}
+        />
+        <Text
+          style={[
+            styles.badgeText,
+            { color: isPositive ? "#15803D" : "#B91C1C" },
+          ]}
+        >
+          {`${isPositive ? "+" : ""}${percentChange.toFixed(1)}%`}
+        </Text>
       </View>
     </View>
   );
@@ -185,4 +441,31 @@ const styles = StyleSheet.create({
   horizontalBarValue: { fontSize: 12, fontWeight: "800" },
   horizontalTrack: { height: 10, borderRadius: 99, overflow: "hidden" },
   horizontalFill: { height: "100%", borderRadius: 99 },
+  trendContainer: { marginTop: 10, alignItems: "center" },
+  trendLegend: { flexDirection: "row", gap: 16, marginTop: 8 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendBox: { width: 10, height: 10, borderRadius: 3 },
+  legendText: { fontSize: 11, fontWeight: "600" },
+  gaugeContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 8 },
+  gaugeDetails: { fontSize: 12, marginTop: 4 },
+  momCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  momTitle: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
+  momValue: { fontSize: 15, fontWeight: "800", marginTop: 2 },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  badgeText: { fontSize: 12, fontWeight: "800" },
 });

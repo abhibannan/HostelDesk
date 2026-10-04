@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Modal,
   KeyboardAvoidingView,
@@ -21,6 +22,7 @@ import { Header, EmptyState } from "../components/common";
 import { getName } from "../utils/formatters";
 import { useTheme } from "../contexts/ThemeContext";
 import { setSuspendBiometrics } from "../hooks/useBiometrics";
+import { haptic } from "../utils/haptics";
 
 interface RepairsScreenProps {
   repairs: Repair[];
@@ -281,9 +283,30 @@ export function RepairsScreen({
     }
   }
 
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh?.();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.screenContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {/* Header */}
         <View style={styles.topNavRow}>
           {onBack && (
@@ -487,7 +510,10 @@ export function RepairsScreen({
                       borderColor: COLORS.primary,
                     },
                   ]}
-                  onPress={() => setFilterStatus(item.key)}
+                  onPress={() => {
+                    haptic.selection();
+                    setFilterStatus(item.key);
+                  }}
                 >
                   <Text
                     style={[
@@ -522,7 +548,15 @@ export function RepairsScreen({
                 const statusStyle = getStatusColor(repair.status);
 
                 return (
-                  <View key={repair.id} style={[styles.repairCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <TouchableOpacity
+                    key={repair.id}
+                    activeOpacity={0.82}
+                    onPress={() => {
+                      haptic.cardPress();
+                      onOpenStatusModal(repair);
+                    }}
+                    style={[styles.repairCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                  >
                     <View style={styles.repairCardHeader}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.repairTitle, { color: colors.text }]}>{repair.title}</Text>
@@ -595,7 +629,11 @@ export function RepairsScreen({
                                 borderColor: isDark ? "rgba(168,85,247,0.35)" : "#DDD6FE",
                               },
                             ]}
-                            onPress={() => onUpdateStatus(repair.id, "IN_PROGRESS")}
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              haptic.medium();
+                              onUpdateStatus(repair.id, "IN_PROGRESS");
+                            }}
                           >
                             <Ionicons name="play-outline" size={14} color={colors.purple} />
                             <Text style={[styles.actionBtnText, { color: colors.purple }]}>
@@ -612,7 +650,11 @@ export function RepairsScreen({
                                 borderColor: isDark ? "rgba(34,197,94,0.35)" : "#BBF7D0",
                               },
                             ]}
-                            onPress={() => onUpdateStatus(repair.id, "RESOLVED")}
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              haptic.success();
+                              onUpdateStatus(repair.id, "RESOLVED");
+                            }}
                           >
                             <Ionicons name="checkmark-done-outline" size={14} color={colors.success} />
                             <Text style={[styles.actionBtnText, { color: colors.success }]}>
@@ -622,21 +664,29 @@ export function RepairsScreen({
                         )}
                         <TouchableOpacity
                           style={[styles.manageBtn, { backgroundColor: colors.surfaceSecondary }]}
-                          onPress={() => onOpenStatusModal(repair)}
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            haptic.light();
+                            onOpenStatusModal(repair);
+                          }}
                         >
                           <Ionicons name="ellipsis-horizontal" size={16} color={colors.secondary} />
                         </TouchableOpacity>
                         {!isRepairPerson && onDeleteRepair ? (
                           <TouchableOpacity
                             style={[styles.cardDeleteBtn, { backgroundColor: colors.dangerLight }]}
-                            onPress={() => onDeleteRepair(repair.id, repair.title)}
+                            onPress={(e) => {
+                              e.stopPropagation?.();
+                              haptic.heavy();
+                              onDeleteRepair(repair.id, repair.title);
+                            }}
                           >
                             <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
                         ) : null}
                       </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}

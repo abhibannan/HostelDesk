@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Alert,
   StyleSheet,
@@ -13,6 +14,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { COLORS, ThemeMode } from "../constants/theme";
 import { Header } from "../components/common";
 import { Hostel, User } from "../types";
+import { haptic } from "../utils/haptics";
 
 interface MoreScreenProps {
   currentUser?: User | null;
@@ -32,6 +34,7 @@ interface MoreScreenProps {
   isBiometricsEnabled?: boolean;
   isBiometricsSupported?: boolean;
   onToggleBiometrics?: (enable: boolean) => Promise<boolean>;
+  onOpenAuditLogs?: () => void;
 }
 
 function MoreRow({
@@ -40,6 +43,8 @@ function MoreRow({
   badge,
   onPress,
   danger = false,
+  iconColor,
+  iconBg,
   colors,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -47,24 +52,33 @@ function MoreRow({
   badge?: number;
   onPress: () => void;
   danger?: boolean;
+  iconColor?: string;
+  iconBg?: string;
   colors: ReturnType<typeof useTheme>["colors"];
 }) {
   return (
     <TouchableOpacity
       style={[styles.moreRow, { borderColor: colors.border, backgroundColor: colors.card }]}
-      onPress={onPress}
+      onPress={() => {
+        haptic.cardPress();
+        onPress();
+      }}
       activeOpacity={0.75}
     >
       <View
         style={[
           styles.moreIcon,
-          { backgroundColor: danger ? colors.dangerLight : colors.primaryLight },
+          {
+            backgroundColor: danger
+              ? colors.dangerLight
+              : iconBg || colors.primaryLight,
+          },
         ]}
       >
         <Ionicons
           name={icon}
-          size={22}
-          color={danger ? colors.danger : colors.primary}
+          size={21}
+          color={danger ? colors.danger : iconColor || colors.primary}
         />
       </View>
       <View style={{ flex: 1 }}>
@@ -77,7 +91,7 @@ function MoreRow({
           <Text style={styles.badgeText}>{badge > 99 ? "99+" : badge}</Text>
         </View>
       ) : (
-        <Ionicons name="chevron-forward" size={20} color={colors.secondary} />
+        <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
       )}
     </TouchableOpacity>
   );
@@ -97,10 +111,11 @@ export function MoreScreen({
   onLogout,
   themeMode,
   onToggleTheme,
-  biometricLabel = "Biometric",
+  biometricLabel = "Biometric / Face Recognition",
   isBiometricsEnabled = false,
   isBiometricsSupported = false,
   onToggleBiometrics,
+  onOpenAuditLogs,
 }: MoreScreenProps) {
   const { colors } = useTheme();
   const isDark = themeMode === "dark";
@@ -122,10 +137,29 @@ export function MoreScreen({
       currentUser.email
     : "Admin";
 
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh?.();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
     >
       <Header title="More" subtitle="Additional StayNexa modules." onRefresh={onRefresh} />
 
@@ -160,18 +194,24 @@ export function MoreScreen({
       <MoreRow
         icon="wallet-outline"
         title="Payments & Invoicing"
+        iconColor="#10B981"
+        iconBg={isDark ? "rgba(16, 185, 129, 0.16)" : "#ECFDF5"}
         onPress={onNavigateToPayments}
         colors={colors}
       />
       <MoreRow
-        icon="construct-outline"
+        icon="build-outline"
         title="Maintenance & Repairs"
+        iconColor="#F59E0B"
+        iconBg={isDark ? "rgba(245, 158, 11, 0.16)" : "#FEF3C7"}
         onPress={onNavigateToRepairs}
         colors={colors}
       />
       <MoreRow
-        icon="notifications-outline"
+        icon="megaphone-outline"
         title="Broadcasts & Announcements"
+        iconColor="#8B5CF6"
+        iconBg={isDark ? "rgba(139, 92, 246, 0.16)" : "#F5F3FF"}
         onPress={onNavigateToNotifications}
         colors={colors}
       />
@@ -249,6 +289,17 @@ export function MoreScreen({
           thumbColor="#FFFFFF"
         />
       </View>
+
+      {onOpenAuditLogs && (
+        <MoreRow
+          icon="shield-checkmark-outline"
+          title="Security & Activity Audit Log"
+          iconColor="#3B82F6"
+          iconBg={isDark ? "rgba(59, 130, 246, 0.16)" : "#EFF6FF"}
+          onPress={onOpenAuditLogs}
+          colors={colors}
+        />
+      )}
 
       {/* Section label */}
       <Text style={[styles.sectionLabel, { color: colors.secondary, marginTop: 8 }]}>

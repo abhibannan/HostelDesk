@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   TextInput,
   Modal,
@@ -17,6 +18,7 @@ import { Hostel } from "../types";
 import { Header, EmptyState } from "../components/common";
 import { COLORS } from "../constants/theme";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptic } from "../utils/haptics";
 
 interface HostelsScreenProps {
   hostels: Hostel[];
@@ -106,11 +108,30 @@ export function HostelsScreen({
     }
   }
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
     >
       {/* Header with Add Button */}
       <View style={styles.topHeaderRow}>
@@ -232,7 +253,10 @@ export function HostelsScreen({
                     borderWidth: isSelected ? 1.5 : 1,
                   },
                 ]}
-                onPress={() => onSelectHostel(hostel.id)}
+                onPress={() => {
+                  haptic.cardPress();
+                  onSelectHostel(hostel.id);
+                }}
                 activeOpacity={0.75}
               >
                 <View

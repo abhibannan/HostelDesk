@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,14 +8,26 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Dashboard, Fee, Hostel, Payment, Renter, Tab } from "../types";
 import { money, statusLabel } from "../utils/formatters";
 import { Header, StatCard, SectionTitle, EmptyState } from "../components/common";
-import { DonutChart, BarChart } from "../components/charts";
+import {
+  DonutChart,
+  BarChart,
+  RevenueTrendChart,
+  OccupancyGauge,
+  MonthOverMonthCard,
+  MonthlyTrendData,
+} from "../components/charts";
+import { DashboardSkeleton } from "../components/Skeleton";
+import { exportFinancialStatementPDF, exportToCSV } from "../services/exportService";
 import { COLORS } from "../constants/theme";
 import { useTheme } from "../contexts/ThemeContext";
+import { useToast } from "../contexts/ToastContext";
+import { haptic } from "../utils/haptics";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -33,6 +45,7 @@ interface DashboardScreenProps {
   onRefresh: () => void;
   onNavigate?: (page: Tab) => void;
   onNavigateToExpenses?: () => void;
+  loading?: boolean;
 }
 
 export function DashboardScreen({
@@ -47,8 +60,89 @@ export function DashboardScreen({
   onRefresh,
   onNavigate,
   onNavigateToExpenses,
+  loading = false,
 }: DashboardScreenProps) {
   const { colors, isDark } = useTheme();
+  const toast = useToast();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    haptic.light();
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleExportFinancialReport = async () => {
+    haptic.medium();
+    try {
+      toast.info("Generating financial statement...", "Exporting PDF");
+      const totalBilled = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+      const totalCollected = fees.reduce((sum, f) => sum + Number(f.paidAmount || 0), 0);
+      const totalOutstanding = Math.max(0, totalBilled - totalCollected);
+      const collectionRate = totalBilled > 0 ? Math.round((totalCollected / totalBilled) * 100) : 0;
+
+      await exportFinancialStatementPDF(
+        fees,
+        { totalBilled, totalCollected, totalOutstanding, collectionRate },
+        selectedHostel?.name || "StayNexa Property"
+      );
+      toast.success("Financial statement opened for download/sharing!", "Export Ready");
+    } catch (e) {
+      toast.error("Failed to generate financial statement.", "Export Error");
+    }
+  };
+
+  // Month-over-month calculation
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthKey = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, "0")}`;
+
+  let thisMonthCollected = 0;
+  let lastMonthCollected = 0;
+
+  payments.forEach((p) => {
+    if (String(p.status || "APPROVED").toUpperCase() !== "APPROVED") return;
+    const key = String(p.paymentDate || p.submittedAt || p.createdAt || "").slice(0, 7);
+    if (key === currentMonthKey) thisMonthCollected += Number(p.amount || 0);
+    else if (key === lastMonthKey) lastMonthCollected += Number(p.amount || 0);
+  });
+
+  // Revenue trend: 6 months dual bars
+  const revenueTrendData: MonthlyTrendData[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleString("en-US", { month: "short" });
+
+    let collected = 0;
+    let outstanding = 0;
+
+    payments.forEach((p) => {
+      if (String(p.status || "APPROVED").toUpperCase() !== "APPROVED") return;
+      if (String(p.paymentDate || p.submittedAt || p.createdAt || "").slice(0, 7) === key) {
+        collected += Number(p.amount || 0);
+      }
+    });
+
+    fees.forEach((f) => {
+      if (String(f.dueDate || f.createdAt || "").slice(0, 7) === key) {
+        const amt = Number(f.amount || 0);
+        const paid = Number(f.paidAmount || 0);
+        outstanding += Math.max(0, amt - paid);
+      }
+    });
+
+    revenueTrendData.push({
+      month: label,
+      collected: Math.round(collected),
+      outstanding: Math.round(outstanding),
+    });
+  }
 
   const occupancyRate =
     dashboard.totalRooms > 0
@@ -87,7 +181,7 @@ export function DashboardScreen({
     {
       id: "renters",
       title: "Renters",
-      icon: "people-outline" as const,
+      icon: "person-circle-outline" as const,
       color: "#059669",
       bg: isDark ? "#064E3B" : "#ECFDF5",
       onPress: () => onNavigate?.("renters"),
@@ -95,7 +189,7 @@ export function DashboardScreen({
     {
       id: "payments",
       title: "Payments",
-      icon: "card-outline" as const,
+      icon: "wallet-outline" as const,
       color: "#D97706",
       bg: isDark ? "#451A03" : "#FEF3C7",
       onPress: () => onNavigate?.("payments"),
@@ -103,7 +197,7 @@ export function DashboardScreen({
     {
       id: "repairs",
       title: "Repairs",
-      icon: "construct-outline" as const,
+      icon: "build-outline" as const,
       color: "#E11D48",
       bg: isDark ? "#4C0519" : "#FFE4E6",
       onPress: () => onNavigate?.("repairs"),
@@ -146,13 +240,37 @@ export function DashboardScreen({
     },
   ];
 
-  return (
+  if (loading) {
+    return (
       <ScrollView
         style={[styles.screen, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.screenContent}
+      >
+        <Header
+          title="Dashboard"
+          subtitle="Live overview of your StayNexa operations."
+          onRefresh={onRefresh}
+        />
+        <DashboardSkeleton />
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled={true}
       keyboardShouldPersistTaps="handled"
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
     >
       <Header
         title="Dashboard"
@@ -161,7 +279,14 @@ export function DashboardScreen({
       />
 
       {selectedHostel ? (
-        <View style={[styles.propertyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            haptic.cardPress();
+            onNavigate?.("hostels");
+          }}
+          style={[styles.propertyCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+        >
           <View style={[styles.propertyIcon, { backgroundColor: colors.primaryLight }]}>
             <Ionicons name="business" size={23} color={colors.primary} />
           </View>
@@ -183,7 +308,7 @@ export function DashboardScreen({
           <View style={[styles.activeLivePill, { backgroundColor: colors.successLight }]}>
             <Text style={[styles.activeLiveText, { color: colors.success }]}>Live</Text>
           </View>
-        </View>
+        </TouchableOpacity>
       ) : null}
 
       {/* ── Bento Services Menu ── */}
@@ -198,7 +323,10 @@ export function DashboardScreen({
                 { backgroundColor: colors.card, borderColor: colors.border },
               ]}
               activeOpacity={0.75}
-              onPress={item.onPress}
+              onPress={() => {
+                haptic.cardPress();
+                item.onPress();
+              }}
             >
               <View style={[styles.heroIconBox, { backgroundColor: item.bg }]}>
                 <Ionicons name={item.icon} size={24} color={item.color} />
@@ -226,7 +354,10 @@ export function DashboardScreen({
                 key={svc.id}
                 style={styles.bentoCell}
                 activeOpacity={0.7}
-                onPress={svc.onPress}
+                onPress={() => {
+                  haptic.cardPress();
+                  svc.onPress();
+                }}
               >
                 <View style={[styles.bentoIconBox, { backgroundColor: svc.bg }]}>
                   <Ionicons name={svc.icon} size={22} color={svc.color} />
@@ -244,27 +375,60 @@ export function DashboardScreen({
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard title="Total Rooms" value={dashboard.totalRooms} icon="grid-outline" tone="blue" />
-        <StatCard title="Available Rooms" value={dashboard.availableRooms} icon="checkmark-circle-outline" tone="green" />
-        <StatCard title="Occupied Rooms" value={dashboard.occupiedRooms} icon="people-outline" tone="blue" />
-        <StatCard title="Active Renters" value={dashboard.activeRenters} icon="person-outline" tone="orange" />
-        <StatCard title="Outstanding Fees" value={money(dashboard.outstandingFees)} icon="wallet-outline" tone="red" />
-        <StatCard title="Payments" value={dashboard.totalPayments} icon="card-outline" tone="purple" />
+        <StatCard title="Total Rooms" value={dashboard.totalRooms} icon="bed-outline" tone="blue" onPress={() => onNavigate?.("rooms")} />
+        <StatCard title="Available Rooms" value={dashboard.availableRooms} icon="key-outline" tone="green" onPress={() => onNavigate?.("rooms")} />
+        <StatCard title="Occupied Rooms" value={dashboard.occupiedRooms} icon="people-outline" tone="blue" onPress={() => onNavigate?.("rooms")} />
+        <StatCard title="Active Renters" value={dashboard.activeRenters} icon="person-circle-outline" tone="orange" onPress={() => onNavigate?.("renters")} />
+        <StatCard title="Outstanding Fees" value={money(dashboard.outstandingFees)} icon="alert-circle-outline" tone="red" onPress={() => onNavigate?.("fees")} />
+        <StatCard title="Payments" value={dashboard.totalPayments} icon="receipt-outline" tone="purple" onPress={() => onNavigate?.("payments")} />
       </View>
 
-      <SectionTitle title="Room occupancy" />
+      {/* ── Visual Occupancy Gauge & Distribution ── */}
+      <SectionTitle title="Occupancy overview" />
       <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <View style={styles.chartCardHeader}>
           <View>
-            <Text style={[styles.chartTitle, { color: colors.text }]}>Occupancy distribution</Text>
-            <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Occupied rooms versus available rooms</Text>
+            <Text style={[styles.chartTitle, { color: colors.text }]}>Real-time Room Fill Gauge</Text>
+            <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Current resident occupancy rate</Text>
           </View>
           <View style={[styles.rateBadge, { backgroundColor: colors.primaryLight }]}>
             <Text style={[styles.rateValue, { color: colors.primary }]}>{occupancyRate}%</Text>
             <Text style={[styles.rateLabel, { color: colors.secondary }]}>occupied</Text>
           </View>
         </View>
+        <OccupancyGauge
+          percentage={occupancyRate}
+          occupiedBeds={dashboard.occupiedRooms}
+          totalBeds={dashboard.totalRooms}
+        />
+        <View style={{ height: 10 }} />
         <DonutChart data={roomChart} centerText={`${occupancyRate}%`} centerSub="occupied" />
+      </View>
+
+      {/* ── Revenue Trends & Month-over-Month Growth ── */}
+      <SectionTitle title="Revenue trends & Growth" />
+      <View style={[styles.chartCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View>
+            <Text style={[styles.chartTitle, { color: colors.text }]}>Collection vs Outstanding</Text>
+            <Text style={[styles.chartSubtitle, { color: colors.secondary }]}>Monthly trajectory across past 6 months</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.exportBtn, { backgroundColor: colors.primaryLight }]}
+            onPress={handleExportFinancialReport}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+            <Text style={[styles.exportBtnText, { color: colors.primary }]}>Export PDF</Text>
+          </TouchableOpacity>
+        </View>
+
+        <RevenueTrendChart data={revenueTrendData} />
+
+        <MonthOverMonthCard
+          thisMonthAmount={thisMonthCollected}
+          lastMonthAmount={lastMonthCollected}
+        />
       </View>
 
       <SectionTitle title="Fee status" />
@@ -492,4 +656,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   liveUpdateText: { flex: 1, marginLeft: 10, color: COLORS.primaryDark, fontSize: 12, lineHeight: 18 },
+  exportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  exportBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
 });

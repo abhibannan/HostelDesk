@@ -12,6 +12,7 @@ import {
   NativeSyntheticEvent,
   Platform,
   ScrollView,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -82,7 +83,7 @@ export function RenterPortalScreen({
   onLogout,
   onSubmitProof,
   onSubmitRepair,
-  biometricLabel = "Biometric",
+  biometricLabel = "Biometric / Face Recognition",
   isBiometricsEnabled = false,
   isBiometricsSupported = false,
   onToggleBiometrics,
@@ -92,6 +93,16 @@ export function RenterPortalScreen({
   const { width: windowWidth } = useWindowDimensions();
   const [containerWidth, setContainerWidth] = useState(windowWidth || Dimensions.get("window").width);
   const pagerRef = useRef<ScrollView>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
 
   // Repair Rating Modal State
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -646,13 +657,6 @@ export function RenterPortalScreen({
             />
           </TouchableOpacity>
           <TouchableOpacity
-            style={[s.iconBtn, { backgroundColor: isDark ? theme.surfaceSecondary : theme.primaryLight }]}
-            onPress={onRefresh}
-            accessibilityLabel="Refresh"
-          >
-            <Ionicons name="refresh-outline" size={20} color={theme.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[s.iconBtn, { backgroundColor: theme.dangerLight }]}
             onPress={onLogout}
             accessibilityLabel="Logout"
@@ -778,7 +782,18 @@ export function RenterPortalScreen({
         >
           {/* ================= TAB 1: DETAILS ================= */}
           <View style={{ width: containerWidth, flex: 1 }}>
-            <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.primary]}
+                  tintColor={theme.primary}
+                />
+              }
+            >
               {/* Quick Hero Banner Card */}
               <LinearGradient
                 colors={isDark ? [theme.card, theme.surfaceSecondary] : ["#ffffff", "#f1f5f9"]}
@@ -976,7 +991,18 @@ export function RenterPortalScreen({
 
           {/* ================= TAB 2: PAYMENTS & FEES ================= */}
           <View style={{ width: containerWidth, flex: 1 }}>
-            <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.primary]}
+                  tintColor={theme.primary}
+                />
+              }
+            >
               {/* Pay Rent Banner */}
               <View
                 style={[
@@ -1232,7 +1258,18 @@ export function RenterPortalScreen({
 
           {/* ================= TAB 3: REPAIRS ================= */}
           <View style={{ width: containerWidth, flex: 1 }}>
-            <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.primary]}
+                  tintColor={theme.primary}
+                />
+              }
+            >
               <View style={s.sectionHeaderRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.sectionTitle, { color: theme.text }]}>Maintenance Requests</Text>
@@ -1394,7 +1431,18 @@ export function RenterPortalScreen({
 
           {/* ================= TAB 4: NOTICES & ANNOUNCEMENTS ================= */}
           <View style={{ width: containerWidth, flex: 1 }}>
-            <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.primary]}
+                  tintColor={theme.primary}
+                />
+              }
+            >
               <View style={s.sectionHeaderRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.sectionTitle, { color: theme.text }]}>Announcements & Notices</Text>
@@ -1488,7 +1536,18 @@ export function RenterPortalScreen({
 
           {/* ================= TAB 5: SETTINGS ================= */}
           <View style={{ width: containerWidth, flex: 1 }}>
-            <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.primary]}
+                  tintColor={theme.primary}
+                />
+              }
+            >
               <View style={s.sectionHeaderRow}>
                 <View>
                   <Text style={[s.sectionTitle, { color: theme.text }]}>Settings & Security</Text>

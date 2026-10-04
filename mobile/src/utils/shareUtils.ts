@@ -1,0 +1,36 @@
+import { Share } from "react-native";
+import { Renter, Hostel } from "../types";
+
+export async function shareRenterDetails(renter: Renter, hostel?: Hostel | null): Promise<void> {
+  const name = renter.name || renter.fullName || "Resident";
+  const room = renter.room?.roomNumber || "Unassigned Room";
+  const phone = renter.phone || "N/A";
+  const rent = renter.monthlyFee ? `₹${renter.monthlyFee.toLocaleString()}` : "Not specified";
+  const deposit = renter.securityDeposit ? `₹${renter.securityDeposit.toLocaleString()}` : "Not specified";
+  const joined = renter.joiningDate ? new Date(renter.joiningDate).toLocaleDateString() : "N/A";
+  const propertyName = hostel?.name || "StayNexa Resident";
+
+  const message = [
+    `📋 *Resident Profile — ${propertyName}*`,
+    `──────────────────────`,
+    `👤 *Name:* ${name}`,
+    `🚪 *Room:* ${room}`,
+    `📞 *Phone:* ${phone}`,
+    `💰 *Monthly Rent:* ${rent}`,
+    `🛡️ *Deposit:* ${deposit}`,
+    `📅 *Move-in Date:* ${joined}`,
+    `🏷️ *Status:* ${renter.status || "ACTIVE"}`,
+    ...(renter.guardianName ? [`👥 *Guardian:* ${renter.guardianName} (${renter.guardianPhone || "N/A"})`] : []),
+    `──────────────────────`,
+    `Shared via StayNexa Property Management`,
+  ].join("\n");
+
+  try {
+    await Share.share({
+      message,
+      title: `Resident Profile - ${name}`,
+    });
+  } catch (err) {
+    console.warn("Share failed:", err);
+  }
+}

@@ -74,6 +74,9 @@ export type Fee = {
   dueDate: string;
   description?: string;
   status?: string;
+  createdAt?: string;
+  renter?: any;
+  room?: any;
 };
 
 export type Payment = {

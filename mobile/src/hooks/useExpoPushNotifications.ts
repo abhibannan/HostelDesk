@@ -41,29 +41,35 @@ try {
   console.warn("Failed to set notification handler:", e);
 }
 
-export function useExpoPushNotifications() {
+export function useExpoPushNotifications(
+  onNotificationResponse?: (data: Record<string, unknown>) => void
+) {
   useEffect(() => {
     async function configureChannelsAndPermissions() {
       try {
-        if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Default Notifications",
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#2563EB",
-            sound: "default",
-            enableVibrate: true,
-            showBadge: true,
-          });
-          await Notifications.setNotificationChannelAsync("staynexa", {
-            name: "StayNexa Alerts",
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: "#2563EB",
-            sound: "default",
-            enableVibrate: true,
-            showBadge: true,
-          });
+        if (Platform.OS === "android" && !checkIsExpoGo()) {
+          try {
+            await Notifications.setNotificationChannelAsync("default", {
+              name: "Default Notifications",
+              importance: Notifications.AndroidImportance.MAX,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: "#2563EB",
+              sound: "default",
+              enableVibrate: true,
+              showBadge: true,
+            });
+            await Notifications.setNotificationChannelAsync("staynexa", {
+              name: "StayNexa Alerts",
+              importance: Notifications.AndroidImportance.MAX,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: "#2563EB",
+              sound: "default",
+              enableVibrate: true,
+              showBadge: true,
+            });
+          } catch (channelErr) {
+            // Suppress Expo Go channel manager absence
+          }
         }
 
         const existing = await Notifications.getPermissionsAsync();
@@ -84,10 +90,31 @@ export function useExpoPushNotifications() {
     void configureChannelsAndPermissions();
   }, []);
 
+  // Listen for user tapping notifications (deep links)
+  useEffect(() => {
+    if (!onNotificationResponse) return;
+
+    // Check if app was opened by a notification response
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response?.notification?.request?.content?.data) {
+        onNotificationResponse(
+          response.notification.request.content.data as Record<string, unknown>
+        );
+      }
+    });
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data) {
+        onNotificationResponse(data as Record<string, unknown>);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [onNotificationResponse]);
+
   const getExpoPushToken = useCallback(async (): Promise<string | null> => {
     try {
-      // Remote push tokens are not supported in Expo Go on Android with SDK 53+.
-      // Calling getExpoPushTokenAsync in Expo Go causes a fatal runtime exception.
       if (checkIsExpoGo()) {
         return null;
       }

@@ -12,13 +12,17 @@ import {
   Pressable,
   StyleSheet,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
 import { useTheme } from "../contexts/ThemeContext";
+import { useToast } from "../contexts/ToastContext";
+import { SwipeableRow } from "../components/SwipeableRow";
 import { Fee, Hostel, Renter } from "../types";
 import { getName, getEmail, money, statusLabel } from "../utils/formatters";
 import { Header, EmptyState } from "../components/common";
+import { haptic } from "../utils/haptics";
 
 interface FeesScreenProps {
   fees: Fee[];
@@ -106,12 +110,90 @@ export function FeesScreen(props: FeesScreenProps) {
     onMarkOverdue,
   } = props;
 
+  const toast = useToast();
+  const [selectedFeeIds, setSelectedFeeIds] = useState<Set<string>>(new Set());
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const toggleSelectFee = (id: string) => {
+    setSelectedFeeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedFeeIds.size === fees.length) {
+      setSelectedFeeIds(new Set());
+    } else {
+      setSelectedFeeIds(new Set(fees.map((f) => f.id)));
+    }
+  };
+
+  const handleBulkRemind = () => {
+    let sent = 0;
+    selectedFeeIds.forEach((feeId) => {
+      const f = fees.find((item) => item.id === feeId);
+      if (f) {
+        const r = renters.find((item) => item.id === f.renterId);
+        onRemindFee?.(f.id, r ? getName(r) : "Resident");
+        sent++;
+      }
+    });
+    toast.success(`Dispatched reminders to ${sent} residents!`, "Bulk Remind");
+    setSelectedFeeIds(new Set());
+    setIsBulkMode(false);
+  };
+
+  const handleBulkDelete = () => {
+    Alert.alert(
+      "Delete Selected Fees",
+      `Are you sure you want to delete ${selectedFeeIds.size} fee record(s)?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            const count = selectedFeeIds.size;
+            selectedFeeIds.forEach((id) => onDeleteFee?.(id));
+            toast.success(`Deleted ${count} fees`, "Bulk Delete");
+            setSelectedFeeIds(new Set());
+            setIsBulkMode(false);
+          },
+        },
+      ]
+    );
+  };
+
   const feeRenter = renters.find((renter) => renter.id === feeRenterId);
   const unpaidCount = fees.filter((f) => String(f.status).toUpperCase() !== "PAID").length;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.screenContent, isBulkMode && { paddingBottom: 150 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <Header
           title="Fees"
           subtitle={selectedHostel?.name || "Select a hostel"}
@@ -131,30 +213,74 @@ export function FeesScreen(props: FeesScreenProps) {
             </Text>
           </View>
           <View style={styles.headerBtnGroup}>
-            {onGenerateMonthlyFees && (
+            {fees.length > 0 && (
               <TouchableOpacity
-                style={[styles.generateButton, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
-                onPress={() => setShowGenerateModal?.(true)}
+                style={[
+                  styles.bulkToggleBtn,
+                  {
+                    backgroundColor: isBulkMode ? colors.primary : colors.surfaceSecondary,
+                    borderColor: colors.border,
+                  },
+                ]}
+                onPress={() => {
+                  setIsBulkMode(!isBulkMode);
+                  if (isBulkMode) setSelectedFeeIds(new Set());
+                }}
               >
-                <Ionicons name="flash-outline" size={14} color={colors.primary} />
-                <Text style={[styles.generateButtonText, { color: colors.primary }]}>Auto-Generate</Text>
+                <Ionicons
+                  name={isBulkMode ? "checkmark-circle" : "checkbox-outline"}
+                  size={15}
+                  color={isBulkMode ? "#FFF" : colors.text}
+                />
+                <Text
+                  style={[
+                    styles.bulkToggleText,
+                    { color: isBulkMode ? "#FFF" : colors.text },
+                  ]}
+                >
+                  {isBulkMode ? "Cancel" : "Bulk"}
+                </Text>
               </TouchableOpacity>
             )}
 
-            {unpaidCount > 0 ? (
+            {onGenerateMonthlyFees && !isBulkMode && (
+              <TouchableOpacity
+                style={[styles.generateButton, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
+                onPress={() => {
+                  haptic.light();
+                  setShowGenerateModal?.(true);
+                }}
+              >
+                <Ionicons name="flash-outline" size={14} color={colors.primary} />
+                <Text style={[styles.generateButtonText, { color: colors.primary }]}>Auto</Text>
+              </TouchableOpacity>
+            )}
+
+            {unpaidCount > 0 && !isBulkMode ? (
               <TouchableOpacity
                 style={[styles.remindAllButton, { backgroundColor: colors.warningLight, borderColor: colors.border }]}
-                onPress={() => onRemindAllUnpaid?.()}
+                onPress={() => {
+                  haptic.medium();
+                  onRemindAllUnpaid?.();
+                }}
               >
                 <Ionicons name="notifications-outline" size={14} color={colors.warning} />
                 <Text style={[styles.remindAllButtonText, { color: colors.warning }]}>Remind ({unpaidCount})</Text>
               </TouchableOpacity>
             ) : null}
 
-            <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenFeeModal}>
-              <Ionicons name="add" size={18} color="#FFFFFF" />
-              <Text style={styles.smallPrimaryText}>Add Fee</Text>
-            </TouchableOpacity>
+            {!isBulkMode && (
+              <TouchableOpacity
+                style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  haptic.medium();
+                  onOpenFeeModal();
+                }}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={styles.smallPrimaryText}>Add</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -173,6 +299,7 @@ export function FeesScreen(props: FeesScreenProps) {
             const isPaid = status === "PAID";
             const isOverdue = status === "OVERDUE";
             const isPartial = status === "PARTIALLY_PAID";
+            const isSelected = selectedFeeIds.has(fee.id);
             const badgeBg = isPaid
               ? colors.successLight
               : isOverdue
@@ -188,9 +315,34 @@ export function FeesScreen(props: FeesScreenProps) {
                   ? colors.warning
                   : colors.primary;
 
-            return (
-              <View key={fee.id} style={[styles.feeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            const feeContent = (
+              <TouchableOpacity
+                key={fee.id}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (isBulkMode) {
+                    haptic.selection();
+                    toggleSelectFee(fee.id);
+                  } else {
+                    haptic.cardPress();
+                  }
+                }}
+                style={[
+                  styles.feeCard,
+                  { backgroundColor: colors.card, borderColor: isSelected ? colors.primary : colors.border },
+                  isSelected && { borderWidth: 2 },
+                ]}
+              >
                 <View style={styles.feeTopRow}>
+                  {isBulkMode && (
+                    <View style={styles.selectionCircle}>
+                      <Ionicons
+                        name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                        size={22}
+                        color={isSelected ? colors.primary : colors.secondary}
+                      />
+                    </View>
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.itemTitle, { color: colors.text }]}>{renter ? getName(renter) : "Renter"}</Text>
                     <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
@@ -221,31 +373,122 @@ export function FeesScreen(props: FeesScreenProps) {
                       <Text style={[styles.feeDescription, { color: colors.secondary }]}>{fee.description}</Text>
                     ) : null}
                   </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    {remaining > 0 ? (
-                      <TouchableOpacity
-                        style={[styles.cardRemindBtn, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
-                        onPress={() => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter")}
-                      >
-                        <Ionicons name="notifications-outline" size={14} color={colors.primary} />
-                        <Text style={[styles.cardRemindBtnText, { color: colors.primary }]}>Remind</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                    {onDeleteFee ? (
-                      <TouchableOpacity
-                        style={[styles.cardDeleteBtn, { backgroundColor: colors.dangerLight }]}
-                        onPress={() => onDeleteFee(fee.id)}
-                      >
-                        <Ionicons name="trash-outline" size={15} color={colors.danger} />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
+                  {!isBulkMode && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      {remaining > 0 ? (
+                        <TouchableOpacity
+                          style={[styles.cardRemindBtn, { backgroundColor: colors.primaryLight, borderColor: colors.border }]}
+                          onPress={() => {
+                            haptic.light();
+                            onRemindFee?.(fee.id, renter ? getName(renter) : "Renter");
+                          }}
+                        >
+                          <Ionicons name="notifications-outline" size={14} color={colors.primary} />
+                          <Text style={[styles.cardRemindBtnText, { color: colors.primary }]}>Remind</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {onDeleteFee ? (
+                        <TouchableOpacity
+                          style={[styles.cardDeleteBtn, { backgroundColor: colors.dangerLight }]}
+                          onPress={() => {
+                            haptic.heavy();
+                            onDeleteFee(fee.id);
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={colors.danger} />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  )}
                 </View>
-              </View>
+              </TouchableOpacity>
+            );
+
+            if (isBulkMode) {
+              return feeContent;
+            }
+
+            return (
+              <SwipeableRow
+                key={fee.id}
+                rightActions={[
+                  ...(remaining > 0
+                    ? [
+                        {
+                          label: "Remind",
+                          icon: "notifications-outline" as const,
+                          backgroundColor: colors.primary,
+                          onPress: () => onRemindFee?.(fee.id, renter ? getName(renter) : "Renter"),
+                        },
+                      ]
+                    : []),
+                  ...(onDeleteFee
+                    ? [
+                        {
+                          label: "Delete",
+                          icon: "trash-outline" as const,
+                          backgroundColor: colors.danger,
+                          onPress: () => onDeleteFee(fee.id),
+                        },
+                      ]
+                    : []),
+                ]}
+              >
+                {feeContent}
+              </SwipeableRow>
             );
           })
         )}
       </ScrollView>
+
+      {/* FLOATING BULK ACTIONS BAR */}
+      {isBulkMode && (
+        <View style={[styles.bulkActionBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.bulkActionHeader}>
+            <TouchableOpacity onPress={handleSelectAll} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons
+                name={selectedFeeIds.size === fees.length ? "checkbox" : "square-outline"}
+                size={18}
+                color={colors.primary}
+              />
+              <Text style={[styles.bulkActionCount, { color: colors.text }]}>
+                {selectedFeeIds.size} of {fees.length} selected
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setIsBulkMode(false)}>
+              <Text style={{ fontSize: 13, fontWeight: "600", color: colors.secondary }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.bulkActionButtons}>
+            <TouchableOpacity
+              style={[
+                styles.bulkBtn,
+                { backgroundColor: colors.primary, opacity: selectedFeeIds.size === 0 ? 0.5 : 1 },
+              ]}
+              disabled={selectedFeeIds.size === 0}
+              onPress={handleBulkRemind}
+            >
+              <Ionicons name="notifications-outline" size={16} color="#FFF" />
+              <Text style={styles.bulkBtnText}>Remind All ({selectedFeeIds.size})</Text>
+            </TouchableOpacity>
+
+            {onDeleteFee && (
+              <TouchableOpacity
+                style={[
+                  styles.bulkBtn,
+                  { backgroundColor: colors.danger, opacity: selectedFeeIds.size === 0 ? 0.5 : 1 },
+                ]}
+                disabled={selectedFeeIds.size === 0}
+                onPress={handleBulkDelete}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FFF" />
+                <Text style={styles.bulkBtnText}>Delete ({selectedFeeIds.size})</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* ADD FEE MODAL */}
       <Modal
@@ -635,5 +878,64 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.dangerLight,
     alignItems: "center",
     justifyContent: "center",
+  },
+  bulkToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  bulkToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  selectionCircle: {
+    marginRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bulkActionBar: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    right: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    gap: 12,
+  },
+  bulkActionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  bulkActionCount: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  bulkActionButtons: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  bulkBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+  },
+  bulkBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

@@ -72,6 +72,12 @@ import { SuperAdminScreen } from "./src/screens/SuperAdminScreen";
 import { ThemedAlertModal } from "./src/components/ThemedAlertModal";
 import { BiometricLockOverlay } from "./src/components/BiometricLockOverlay";
 import { useBiometrics } from "./src/hooks/useBiometrics";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
+import { ToastProvider, useToast } from "./src/contexts/ToastContext";
+import { useSessionTimeout } from "./src/hooks/useSessionTimeout";
+import { OfflineBanner } from "./src/components/OfflineBanner";
+import { flushOfflineQueue } from "./src/services/offlineQueue";
+import { AuditLogModal } from "./src/components/AuditLogModal";
 
 // Components
 import { BottomTab } from "./src/components/common";
@@ -106,15 +112,33 @@ interface PlatformStatus {
 // ─────────────────────────────────────────────────────────────────────────────
 function AppContent() {
   const { colors, toggleTheme, isDark, themeMode } = useTheme();
-  const { getExpoPushToken, scheduleLocalNotification } = useExpoPushNotifications();
+  const toast = useToast();
   const [page, setPageState] = useState<Tab>("dashboard");
   const [pageHistory, setPageHistory] = useState<Tab[]>(["dashboard"]);
   const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set(["dashboard"]));
   const [paymentsInitialOption, setPaymentsInitialOption] = useState<"menu" | "fees_all" | "fees_paid" | "fees_unpaid" | "proofs" | "reminders" | "expenses">("menu");
+  const [showAuditModal, setShowAuditModal] = useState(false);
   const [containerWidth, setContainerWidth] = useState(
     Dimensions.get("window").width,
   );
   const pageScrollRef = useRef<ScrollView>(null);
+
+  // Push Notification Deep Linking (Tap a payment received notification → jump to proof)
+  const handleNotificationResponse = useCallback((payload: Record<string, unknown>) => {
+    if (payload.screen === "payments" || payload.type === "PAYMENT_PROOF") {
+      setPaymentsInitialOption("proofs");
+      setPageState("payments");
+    } else if (payload.type === "REPAIR" || payload.screen === "repairs") {
+      setPageState("repairs");
+    } else if (payload.type === "FEE" || payload.screen === "fees") {
+      setPaymentsInitialOption("fees_all");
+      setPageState("payments");
+    } else if (payload.targetTab && typeof payload.targetTab === "string") {
+      setPageState(payload.targetTab as Tab);
+    }
+  }, []);
+
+  const { getExpoPushToken, scheduleLocalNotification } = useExpoPushNotifications(handleNotificationResponse);
 
   // Platform Maintenance & Alert Banner State (Features 2 & 5)
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null);
@@ -289,6 +313,17 @@ function AppContent() {
   const auth = useAuth(authCallbacks);
   // Wire the ref once auth is available
   setCurrentRenterDocRef.current = auth.setCurrentRenterDoc;
+
+  // ── Auto-logout / Session Timeout (15 mins inactivity or 10 mins background) ──
+  useSessionTimeout({
+    timeoutMs: 15 * 60 * 1000,
+    backgroundTimeoutMs: 10 * 60 * 1000,
+    enabled: Boolean(auth.token),
+    onTimeout: () => {
+      toast.warning("Session locked due to inactivity.", "Security Auto-Lock");
+      void auth.logout();
+    },
+  });
 
   // ── Biometrics layer (Hardware Fingerprint / Face ID lock) ─────────────────
   const biometrics = useBiometrics(Boolean(auth.token));
@@ -562,6 +597,18 @@ function AppContent() {
     });
     return months;
   }, [data.payments]);
+
+  const pendingProofsCount = useMemo(() => {
+    return (data.payments || []).filter(
+      (p) => String(p.status || "").toUpperCase() === "SUBMITTED",
+    ).length;
+  }, [data.payments]);
+
+  const isDetailSubPage =
+    page === "payments" ||
+    page === "fees" ||
+    page === "repairs" ||
+    page === "notifications";
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER — session check (prevents login screen from flashing on startup)
@@ -912,24 +959,12 @@ function AppContent() {
     );
   }
 
-  const pendingProofsCount = useMemo(() => {
-    return (data.payments || []).filter(
-      (p) => String(p.status || "").toUpperCase() === "SUBMITTED",
-    ).length;
-  }, [data.payments]);
+  const isAdminRole =
+    auth.currentUser?.role === "ADMIN" ||
+    auth.currentUser?.role === "SUPER_ADMIN" ||
+    (auth.currentUser?.role as any) === "WARDEN";
 
-  const isDetailSubPage =
-    page === "payments" ||
-    page === "fees" ||
-    page === "repairs" ||
-    page === "notifications";
-
-
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER — Hostel Admin dashboard (hostels, rooms, renters, fees, repairs)
-  // ─────────────────────────────────────────────────────────────────────────
-  if (auth.currentUser?.role === "ADMIN") {
+  if (isAdminRole) {
     return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <StatusBar
@@ -937,6 +972,7 @@ function AppContent() {
         backgroundColor={colors.background}
       />
       {renderGlobalAlertBanner()}
+      <OfflineBanner onSyncPress={() => void flushOfflineQueue(data.request)} />
       <View style={[styles.appContainer, { backgroundColor: colors.background }]}>
         <View
           style={[{ flex: 1 }, isDetailSubPage && { display: "none" }]}
@@ -1144,6 +1180,7 @@ function AppContent() {
                           isBiometricsEnabled={biometrics.isBiometricsEnabled}
                           isBiometricsSupported={biometrics.isHardwareAvailable && biometrics.isEnrolled}
                           onToggleBiometrics={biometrics.toggleBiometrics}
+                          onOpenAuditLogs={() => setShowAuditModal(true)}
                         />
                       )}
                     </>
@@ -1303,8 +1340,8 @@ function AppContent() {
             onPress={() => setPage("hostels")}
           />
           <BottomTab
-            icon="grid-outline"
-            activeIcon="grid"
+            icon="bed-outline"
+            activeIcon="bed"
             label="Rooms"
             active={page === "rooms"}
             onPress={() => setPage("rooms")}
@@ -1317,8 +1354,8 @@ function AppContent() {
             onPress={() => setPage("renters")}
           />
           <BottomTab
-            icon="menu-outline"
-            activeIcon="menu"
+            icon="apps-outline"
+            activeIcon="apps"
             label="More"
             badge={pendingProofsCount > 0 ? pendingProofsCount : undefined}
             active={
@@ -1339,6 +1376,13 @@ function AppContent() {
           <Text style={[styles.refreshOverlayText, { color: colors.secondary }]}>Refreshing…</Text>
         </View>
       ) : null}
+
+      <AuditLogModal
+        visible={showAuditModal}
+        onClose={() => setShowAuditModal(false)}
+        hostelId={data.selectedHostelId || data.hostels[0]?.id || ""}
+        token={auth.token || ""}
+      />
     </SafeAreaView>
   );
   }
@@ -1380,12 +1424,16 @@ function AppContent() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AppContent />
-        <ThemedAlertModal />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AppContent />
+            <ThemedAlertModal />
+          </ToastProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

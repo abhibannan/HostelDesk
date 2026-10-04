@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   StyleSheet,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
@@ -20,6 +21,13 @@ import { getName, getEmail, money } from "../utils/formatters";
 import { Header, EmptyState } from "../components/common";
 import { CalendarPickerModal } from "../components/CalendarPickerModal";
 import { useTheme } from "../contexts/ThemeContext";
+import { useToast } from "../contexts/ToastContext";
+import { haptic } from "../utils/haptics";
+import { RenterOnboardingQRModal } from "../components/RenterOnboardingQRModal";
+import { shareRenterDetails } from "../utils/shareUtils";
+import { exportRenterListPDF, exportToCSV } from "../services/exportService";
+import { ListSkeleton } from "../components/Skeleton";
+import { RefreshControl } from "react-native";
 
 interface RentersScreenProps {
   renters: Renter[];
@@ -235,40 +243,124 @@ export function RentersScreen(props: RentersScreenProps) {
     ? rooms.filter((r) => !r.hostelId || r.hostelId === selectedHostel.id)
     : rooms;
 
-  const currentActiveRenters = currentHostelRenters.filter(
-    (r) => String(r.status || "ACTIVE").toUpperCase() === "ACTIVE"
+  const currentActiveRenters = useMemo(
+    () => currentHostelRenters.filter((r) => String(r.status || "ACTIVE").toUpperCase() === "ACTIVE"),
+    [currentHostelRenters]
   );
 
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [calendarTarget, setCalendarTarget] = useState<"add" | "edit" | null>(null);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const toast = useToast();
+
+  const totalRentersCount = currentHostelRenters.length;
+  const activeRentersCount = currentActiveRenters.length;
+  const inactiveRentersCount = totalRentersCount - activeRentersCount;
+
+  const handleRefresh = async () => {
+    haptic.light();
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleCall = useCallback((phone?: string) => {
+    haptic.light();
+    if (!phone) {
+      toast.info("No phone number registered for this resident.", "Contact");
+      return;
+    }
+    const clean = phone.replace(/[^0-9+]/g, "");
+    Linking.openURL(`tel:${clean}`).catch(() => {
+      toast.error("Unable to launch dialer.", "Call Failed");
+    });
+  }, [toast]);
+
+  const handleWhatsApp = useCallback((phone?: string, name?: string) => {
+    haptic.light();
+    if (!phone) {
+      toast.info("No phone number registered for this resident.", "Contact");
+      return;
+    }
+    const clean = phone.replace(/[^0-9]/g, "");
+    const msg = encodeURIComponent(`Hi ${name || "Resident"}, messaging you from ${selectedHostel?.name || "StayNexa"}.`);
+    Linking.openURL(`https://wa.me/${clean}?text=${msg}`).catch(() => {
+      toast.error("Could not open WhatsApp.", "WhatsApp Failed");
+    });
+  }, [selectedHostel, toast]);
+
+  const handleExportRentersPDF = async () => {
+    haptic.medium();
+    try {
+      toast.info("Generating resident directory PDF...", "Exporting");
+      await exportRenterListPDF(currentHostelRenters, selectedHostel?.name || "StayNexa Property");
+      toast.success("Resident directory ready to save or share!", "Exported");
+    } catch {
+      toast.error("Failed to generate PDF", "Export Error");
+    }
+  };
+
+  const handleExportRentersCSV = async () => {
+    haptic.medium();
+    try {
+      toast.info("Generating resident directory CSV...", "Exporting");
+      const headers = ["Name", "Room", "Phone", "Email", "Monthly Rent", "Security Deposit", "Status", "Joined"];
+      const rows = currentHostelRenters.map((r) => [
+        getName(r),
+        r.room?.roomNumber || rooms.find((rm) => rm.id === r.roomId)?.roomNumber || "Unassigned",
+        r.phone || r.user?.phone || "",
+        getEmail(r) || "",
+        r.monthlyFee || 0,
+        r.securityDeposit || 0,
+        r.status || "ACTIVE",
+        r.joiningDate || "",
+      ]);
+      await exportToCSV(headers, rows, `StayNexa_Residents_${Date.now()}`);
+      toast.success("CSV directory export ready!", "Exported");
+    } catch {
+      toast.error("Failed to export CSV", "Export Error");
+    }
+  };
+
   const selectedRoom = currentHostelRooms.find((room) => room.id === renterRoomId);
   const editSelectedRoom = currentHostelRooms.find((room) => room.id === editRenterRoomId);
   const normalizedSearch = renterSearch.trim().toLowerCase();
 
-  const filteredRenters = normalizedSearch
-    ? currentHostelRenters.filter((renter) => {
-        const roomNumber =
-          renter.room?.roomNumber ||
-          currentHostelRooms.find((room) => room.id === renter.roomId)?.roomNumber ||
-          "";
+  const filteredRenters = useMemo(() => {
+    return currentHostelRenters.filter((renter) => {
+      const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
+      if (statusFilter === "ACTIVE" && !active) return false;
+      if (statusFilter === "INACTIVE" && active) return false;
 
-        const searchableText = [
-          getName(renter),
-          getEmail(renter),
-          renter.phone,
-          renter.user?.phone,
-          renter.guardianPhone,
-          roomNumber,
-          renter.roomId,
-          renter.joiningDate,
-          renter.status,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+      if (!normalizedSearch) return true;
 
-        return searchableText.includes(normalizedSearch);
-      })
-    : currentHostelRenters;
+      const roomNumber =
+        renter.room?.roomNumber ||
+        currentHostelRooms.find((room) => room.id === renter.roomId)?.roomNumber ||
+        "";
+
+      const searchableText = [
+        getName(renter),
+        getEmail(renter),
+        renter.phone,
+        renter.user?.phone,
+        renter.guardianPhone,
+        roomNumber,
+        renter.roomId,
+        renter.joiningDate,
+        renter.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(normalizedSearch);
+    });
+  }, [currentHostelRenters, currentHostelRooms, normalizedSearch, statusFilter]);
 
   const renderRenterCard = useCallback(({ item: renter }: { item: Renter }) => {
     const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
@@ -276,94 +368,381 @@ export function RentersScreen(props: RentersScreenProps) {
       renter.room?.roomNumber ||
       rooms.find((room) => room.id === renter.roomId)?.roomNumber ||
       "-";
+    const primaryPhone = renter.phone || renter.user?.phone;
+    const renterEmailStr = getEmail(renter);
+    const monthlyAmt = Number(renter.monthlyFee) || 0;
 
     return (
       <Pressable
-        style={[styles.renterCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-        onPress={() => onOpenRenterDetails(renter)}
+        style={({ pressed }) => [
+          styles.renterCard,
+          {
+            backgroundColor: colors.card,
+            borderColor: active ? colors.border : (isDark ? "#334155" : "#E2E8F0"),
+            opacity: pressed ? 0.96 : 1,
+          },
+        ]}
+        onPress={() => {
+          haptic.light();
+          onOpenRenterDetails(renter);
+        }}
       >
-        <View style={[styles.avatar, { backgroundColor: colors.primaryLight }]}>
-          <Text style={[styles.avatarText, { color: colors.primary }]}>
-            {getName(renter).charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        {/* Top Header: Avatar + Info + Rent/Status */}
+        <View style={styles.cardHeaderRow}>
+          <View style={styles.avatarWrapper}>
+            <View style={[styles.avatar, { backgroundColor: active ? colors.primaryLight : colors.surfaceSecondary }]}>
+              <Text style={[styles.avatarText, { color: active ? colors.primary : colors.secondary }]}>
+                {getName(renter).charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: active ? colors.success : colors.secondary,
+                  borderColor: colors.card,
+                },
+              ]}
+            />
+          </View>
 
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.itemTitle, { color: colors.text }]}>{getName(renter)}</Text>
-          {getEmail(renter) ? (
-            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>{getEmail(renter)}</Text>
-          ) : null}
-          {renter.phone || renter.user?.phone ? (
-            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
-              Phone: {renter.phone || renter.user?.phone}
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={1}>
+              {getName(renter)}
             </Text>
-          ) : null}
-          {renter.guardianPhone ? (
-            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>Guardian: {renter.guardianPhone}</Text>
-          ) : null}
-          <Text style={[styles.roomTag, { backgroundColor: colors.surfaceSecondary, color: colors.primary, borderColor: colors.border, borderWidth: 1 }]}>Room {roomNumber}</Text>
+
+            <View style={styles.badgeRow}>
+              <View
+                style={[
+                  styles.roomBadge,
+                  {
+                    backgroundColor: isDark ? "rgba(59, 130, 246, 0.12)" : colors.primaryLight,
+                    borderColor: isDark ? "rgba(59, 130, 246, 0.25)" : colors.primaryLight,
+                  },
+                ]}
+              >
+                <Ionicons name="bed-outline" size={11} color={colors.primary} />
+                <Text style={[styles.roomBadgeText, { color: colors.primary }]}>
+                  {roomNumber !== "-" ? `Room ${roomNumber}` : "Unassigned"}
+                </Text>
+              </View>
+
+              {renter.joiningDate ? (
+                <View style={[styles.dateChip, { backgroundColor: colors.surfaceSecondary }]}>
+                  <Ionicons name="calendar-outline" size={10} color={colors.secondary} />
+                  <Text style={[styles.dateChipText, { color: colors.secondary }]}>
+                    {renter.joiningDate}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Rent & Status */}
+          <View style={{ alignItems: "flex-end", gap: 4 }}>
+            {monthlyAmt > 0 ? (
+              <View style={[styles.rentPill, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5", borderColor: isDark ? "#065F46" : "#A7F3D0" }]}>
+                <Text style={[styles.rentPillText, { color: colors.success }]}>
+                  {money(monthlyAmt)}/mo
+                </Text>
+              </View>
+            ) : null}
+
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: active ? (isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5") : (isDark ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2") },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusBadgeText,
+                  { color: active ? colors.success : colors.danger },
+                ]}
+              >
+                {active ? "ACTIVE" : "INACTIVE"}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View
-          style={[
-            styles.statusBadge,
-            { backgroundColor: active ? colors.successLight : colors.dangerLight },
-          ]}
-        >
-          <Text
-            style={[
-              styles.statusBadgeText,
-              { color: active ? colors.success : colors.danger },
-            ]}
-          >
-            {active ? "ACTIVE" : String(renter.status || "INACTIVE")}
-          </Text>
+        {/* Secondary Contact Info */}
+        {(primaryPhone || renterEmailStr) ? (
+          <View style={[styles.renterSubRow, { borderTopColor: colors.border }]}>
+            {primaryPhone ? (
+              <View style={styles.infoMetaItem}>
+                <Ionicons name="call-outline" size={12} color={colors.secondary} />
+                <Text style={[styles.infoMetaText, { color: colors.secondary }]}>
+                  {primaryPhone}
+                </Text>
+              </View>
+            ) : null}
+            {renterEmailStr ? (
+              <View style={[styles.infoMetaItem, { flex: 1 }]}>
+                <Ionicons name="mail-outline" size={12} color={colors.secondary} />
+                <Text style={[styles.infoMetaText, { color: colors.secondary }]} numberOfLines={1}>
+                  {renterEmailStr}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Action Footer: Call, WhatsApp on Left; Edit, Share on Right */}
+        <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
+          {/* Quick Contact */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {primaryPhone ? (
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.contactActionPill,
+                    {
+                      backgroundColor: isDark ? "rgba(16, 185, 129, 0.12)" : "#ECFDF5",
+                      borderColor: isDark ? "rgba(16, 185, 129, 0.3)" : "#A7F3D0",
+                    },
+                  ]}
+                  onPress={() => handleCall(primaryPhone)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                >
+                  <Ionicons name="call" size={12} color="#10B981" />
+                  <Text style={[styles.contactActionText, { color: "#10B981" }]}>Call</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.contactActionPill,
+                    {
+                      backgroundColor: isDark ? "rgba(37, 211, 102, 0.12)" : "#E8F8EE",
+                      borderColor: isDark ? "rgba(37, 211, 102, 0.3)" : "#BBF7D0",
+                    },
+                  ]}
+                  onPress={() => handleWhatsApp(primaryPhone, getName(renter))}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                >
+                  <Ionicons name="logo-whatsapp" size={12} color="#25D366" />
+                  <Text style={[styles.contactActionText, { color: "#16A34A" }]}>WhatsApp</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={{ fontSize: 11, color: colors.secondary, fontStyle: "italic" }}>
+                No phone saved
+              </Text>
+            )}
+          </View>
+
+          {/* Clean Edit & Share Action Buttons */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <TouchableOpacity
+              style={[
+                styles.actionPillButton,
+                {
+                  backgroundColor: isDark ? "rgba(59, 130, 246, 0.12)" : "#EFF6FF",
+                  borderColor: isDark ? "rgba(59, 130, 246, 0.3)" : "#BFDBFE",
+                },
+              ]}
+              onPress={() => {
+                haptic.light();
+                onOpenEditRenter(renter);
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons name="create-outline" size={13} color={colors.primary} />
+              <Text style={[styles.actionPillText, { color: colors.primary }]}>Edit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.actionPillButton,
+                {
+                  backgroundColor: colors.surfaceSecondary,
+                  borderColor: colors.border,
+                },
+              ]}
+              onPress={() => {
+                haptic.light();
+                void shareRenterDetails(renter, selectedHostel);
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons name="share-social-outline" size={13} color={colors.text} />
+              <Text style={[styles.actionPillText, { color: colors.text }]}>Share</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Pressable>
     );
-  }, [colors, rooms, onOpenRenterDetails]);
+  }, [colors, isDark, rooms, onOpenRenterDetails, onOpenEditRenter, selectedHostel, handleCall, handleWhatsApp]);
 
   const renterKeyExtractor = useCallback((item: Renter) => item.id, []);
 
   const ListHeader = (
-    <>
+    <View style={{ marginBottom: 14 }}>
       <Header
         title="Renters"
         subtitle={selectedHostel?.name || "Select a hostel"}
         onRefresh={onRefresh}
       />
 
-      <View style={styles.actionRow}>
-        <View>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Renter management</Text>
-          <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
-            {currentActiveRenters.length} active renter{currentActiveRenters.length === 1 ? "" : "s"}
-          </Text>
+      {/* 2 Clean Metric Cards (Monthly Roll Removed) */}
+      <View style={styles.metricsContainer}>
+        <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={[styles.metricIconWrap, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="people" size={16} color={colors.primary} />
+            </View>
+            <View style={[styles.miniStatBadge, { backgroundColor: colors.surfaceSecondary }]}>
+              <Text style={[styles.miniStatText, { color: colors.secondary }]}>All</Text>
+            </View>
+          </View>
+          <Text style={[styles.metricNumber, { color: colors.text }]}>{totalRentersCount}</Text>
+          <Text style={[styles.metricLabel, { color: colors.secondary }]}>Total Residents</Text>
         </View>
-        <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenRenterModal}>
-          <Ionicons name="person-add-outline" size={19} color="#FFFFFF" />
-          <Text style={styles.smallPrimaryText}>Add Renter</Text>
-        </TouchableOpacity>
+
+        <View style={[styles.metricCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={[styles.metricIconWrap, { backgroundColor: colors.successLight }]}>
+              <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+            </View>
+            <View style={[styles.miniStatBadge, { backgroundColor: colors.successLight }]}>
+              <Text style={[styles.miniStatText, { color: colors.success }]}>
+                {totalRentersCount > 0 ? `${Math.round((activeRentersCount / totalRentersCount) * 100)}%` : "0%"}
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.metricNumber, { color: colors.success }]}>{activeRentersCount}</Text>
+          <Text style={[styles.metricLabel, { color: colors.secondary }]}>Active Occupancy</Text>
+        </View>
       </View>
 
+      {/* Top Action Row: Title + Add CTA + QR + Export */}
+      <View style={styles.actionRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Resident Directory</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
+            {filteredRenters.length} resident{filteredRenters.length === 1 ? "" : "s"} shown
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+          <TouchableOpacity
+            style={[styles.outlineActionButton, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+            onPress={handleExportRentersPDF}
+          >
+            <Ionicons name="document-text-outline" size={15} color={colors.primary} />
+            <Text style={[styles.outlineActionText, { color: colors.text }]}>PDF</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.outlineActionButton, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+            onPress={handleExportRentersCSV}
+          >
+            <Ionicons name="download-outline" size={15} color={colors.secondary} />
+            <Text style={[styles.outlineActionText, { color: colors.secondary }]}>CSV</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.outlineActionButton, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+            onPress={() => {
+              haptic.light();
+              setShowQRModal(true);
+            }}
+          >
+            <Ionicons name="qr-code-outline" size={15} color={colors.primary} />
+            <Text style={[styles.outlineActionText, { color: colors.text }]}>QR</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              haptic.medium();
+              onOpenRenterModal();
+            }}
+          >
+            <Ionicons name="person-add" size={16} color="#FFFFFF" />
+            <Text style={styles.smallPrimaryText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Filter Tabs: All, Active, Inactive */}
+      <View style={styles.filterTabsRow}>
+        {(["ALL", "ACTIVE", "INACTIVE"] as const).map((filter) => {
+          const isSelected = statusFilter === filter;
+          const count =
+            filter === "ALL"
+              ? totalRentersCount
+              : filter === "ACTIVE"
+              ? activeRentersCount
+              : inactiveRentersCount;
+
+          return (
+            <TouchableOpacity
+              key={filter}
+              style={[
+                styles.filterTabPill,
+                {
+                  backgroundColor: isSelected ? colors.primary : colors.card,
+                  borderColor: isSelected ? colors.primary : colors.border,
+                },
+              ]}
+              onPress={() => {
+                haptic.selection();
+                setStatusFilter(filter);
+              }}
+            >
+              <Text
+                style={[
+                  styles.filterTabPillText,
+                  { color: isSelected ? "#FFFFFF" : colors.secondary, fontWeight: isSelected ? "800" : "600" },
+                ]}
+              >
+                {filter === "ALL" ? "All" : filter === "ACTIVE" ? "Active" : "Inactive"}
+              </Text>
+              <View
+                style={[
+                  styles.filterCountBadge,
+                  {
+                    backgroundColor: isSelected ? "rgba(255, 255, 255, 0.25)" : colors.surfaceSecondary,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterCountBadgeText,
+                    { color: isSelected ? "#FFFFFF" : colors.text },
+                  ]}
+                >
+                  {count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Search Input Box */}
       <View style={[styles.renterSearchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        <Ionicons name="search-outline" size={20} color={colors.secondary} />
+        <Ionicons name="search-outline" size={18} color={colors.secondary} />
         <TextInput
           style={[styles.renterSearchInput, { color: colors.text }]}
           value={renterSearch}
           onChangeText={setRenterSearch}
-          placeholder="Search name, email, phone, guardian or room"
+          placeholder="Search by name, room, phone, email, guardian..."
           placeholderTextColor={colors.secondary}
           autoCapitalize="none"
           autoCorrect={false}
         />
         {renterSearch.length > 0 ? (
           <TouchableOpacity onPress={() => setRenterSearch("")}>
-            <Ionicons name="close-circle" size={20} color={colors.secondary} />
+            <Ionicons name="close-circle" size={18} color={colors.secondary} />
           </TouchableOpacity>
         ) : null}
       </View>
-    </>
+    </View>
   );
 
   return (
@@ -373,6 +752,14 @@ export function RentersScreen(props: RentersScreenProps) {
         renderItem={renderRenterCard}
         keyExtractor={renterKeyExtractor}
         ListHeaderComponent={ListHeader}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
         ListEmptyComponent={
           renters.length === 0 ? (
             <EmptyState
@@ -422,7 +809,10 @@ export function RentersScreen(props: RentersScreenProps) {
                   </View>
                   <TouchableOpacity
                     style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
-                    onPress={() => setShowRenterDetailsModal(false)}
+                    onPress={() => {
+                      haptic.light();
+                      setShowRenterDetailsModal(false);
+                    }}
                   >
                     <Ionicons name="close" size={22} color={colors.secondary} />
                   </TouchableOpacity>
@@ -437,17 +827,27 @@ export function RentersScreen(props: RentersScreenProps) {
 
                 {selectedRenter ? (
                   <>
+                    {/* Hero Passport Banner */}
                     <View style={[styles.renterDetailsHero, { borderBottomColor: colors.border }]}>
                       <View style={[styles.avatarLarge, { backgroundColor: colors.primaryLight }]}>
                         <Text style={[styles.avatarLargeText, { color: colors.primary }]}>
                           {getName(selectedRenter).charAt(0).toUpperCase()}
                         </Text>
                       </View>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
                         <Text style={[styles.renterDetailsName, { color: colors.text }]}>{getName(selectedRenter)}</Text>
                         <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
-                          {getEmail(selectedRenter) || "No email"}
+                          {getEmail(selectedRenter) || "No email registered"}
                         </Text>
+                        {selectedRenter.room?.roomNumber ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 }}>
+                            <Ionicons name="bed-outline" size={13} color={colors.primary} />
+                            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.primary }}>
+                              Room {selectedRenter.room.roomNumber}
+                              {selectedRenter.room.floor !== null && selectedRenter.room.floor !== undefined ? ` • Floor ${selectedRenter.room.floor}` : ""}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
                       <View
                         style={[
@@ -476,43 +876,71 @@ export function RentersScreen(props: RentersScreenProps) {
                       </View>
                     </View>
 
-                    {/* Section 1: Contact */}
-                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 }]}>
-                      <Text style={[styles.renterDetailSectionTitle, { color: colors.primary, marginTop: 0 }]}>Contact</Text>
-                      <View style={styles.renterDetailsGrid}>
-                        <RenterDetail label="First name" value={selectedRenter.user?.firstName || "-"} colors={colors} />
-                        <RenterDetail label="Last name" value={selectedRenter.user?.lastName || "-"} colors={colors} />
-                        <RenterDetail label="Email" value={getEmail(selectedRenter) || "-"} colors={colors} />
-                        <RenterDetail label="Phone" value={selectedRenter.phone || selectedRenter.user?.phone || "-"} colors={colors} />
-                        <RenterDetail label="Guardian number" value={selectedRenter.guardianPhone || "-"} colors={colors} />
-                        <RenterDetail label="Gender" value={selectedRenter.user?.gender || "-"} colors={colors} />
-                        <RenterDetail label="Date of birth" value={selectedRenter.user?.dateOfBirth || "-"} colors={colors} />
-                        <RenterDetail label="Emergency contact" value={selectedRenter.user?.emergencyContactName || "-"} colors={colors} />
-                        <RenterDetail label="Emergency phone" value={selectedRenter.user?.emergencyContactPhone || "-"} colors={colors} />
-                      </View>
+                    {/* Quick Contact, Edit & Share Action Bar */}
+                    <View style={styles.heroActionsRow}>
+                      {(selectedRenter.phone || selectedRenter.user?.phone) ? (
+                        <>
+                          <TouchableOpacity
+                            style={[styles.heroActionButton, { backgroundColor: isDark ? "rgba(16, 185, 129, 0.15)" : "#ECFDF5", borderColor: "#10B981" }]}
+                            onPress={() => {
+                              haptic.light();
+                              handleCall(selectedRenter.phone || selectedRenter.user?.phone);
+                            }}
+                          >
+                            <Ionicons name="call" size={15} color="#10B981" />
+                            <Text style={[styles.heroActionText, { color: "#10B981" }]}>Call</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.heroActionButton, { backgroundColor: isDark ? "rgba(37, 211, 102, 0.15)" : "#E8F8EE", borderColor: "#25D366" }]}
+                            onPress={() => {
+                              haptic.light();
+                              handleWhatsApp(selectedRenter.phone || selectedRenter.user?.phone, getName(selectedRenter));
+                            }}
+                          >
+                            <Ionicons name="logo-whatsapp" size={15} color="#25D366" />
+                            <Text style={[styles.heroActionText, { color: "#25D366" }]}>WhatsApp</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : null}
+
+                      <TouchableOpacity
+                        style={[styles.heroActionButton, { backgroundColor: isDark ? "rgba(59, 130, 246, 0.15)" : "#EFF6FF", borderColor: colors.primary }]}
+                        onPress={() => {
+                          haptic.light();
+                          setShowRenterDetailsModal(false);
+                          onOpenEditRenter(selectedRenter);
+                        }}
+                      >
+                        <Ionicons name="create-outline" size={15} color={colors.primary} />
+                        <Text style={[styles.heroActionText, { color: colors.primary }]}>Edit</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.heroActionButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                        onPress={() => {
+                          haptic.light();
+                          void shareRenterDetails(selectedRenter, selectedHostel);
+                        }}
+                      >
+                        <Ionicons name="share-social-outline" size={15} color={colors.text} />
+                        <Text style={[styles.heroActionText, { color: colors.text }]}>Share</Text>
+                      </TouchableOpacity>
                     </View>
 
-                    {/* Section 2: Address */}
-                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 }]}>
-                      <Text style={[styles.renterDetailSectionTitle, { color: colors.primary, marginTop: 0 }]}>Address</Text>
-                      <View style={styles.renterDetailsGrid}>
-                        <RenterDetail label="Address" value={selectedRenter.user?.address || "-"} colors={colors} />
-                        <RenterDetail label="City" value={selectedRenter.user?.city || "-"} colors={colors} />
-                        <RenterDetail label="State" value={selectedRenter.user?.state || "-"} colors={colors} />
-                        <RenterDetail label="Pincode" value={selectedRenter.user?.pincode || "-"} colors={colors} />
+                    {/* Section 1: Room & Occupancy */}
+                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <Ionicons name="home-outline" size={15} color={colors.primary} />
+                        <Text style={[styles.renterDetailSectionTitle, { color: colors.primary }]}>Room & Occupancy</Text>
                       </View>
-                    </View>
-
-                    {/* Section 3: Stay & Financial */}
-                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14 }]}>
-                      <Text style={[styles.renterDetailSectionTitle, { color: colors.primary, marginTop: 0 }]}>Stay & Financial</Text>
                       <View style={styles.renterDetailsGrid}>
                         <RenterDetail
-                          label="Room"
+                          label="Assigned Room"
                           value={
                             selectedRenter.room?.roomNumber
                               ? `Room ${selectedRenter.room.roomNumber}`
-                              : "-"
+                              : "Unassigned"
                           }
                           colors={colors}
                         />
@@ -520,14 +948,12 @@ export function RentersScreen(props: RentersScreenProps) {
                           label="Floor"
                           value={
                             selectedRenter.room?.floor !== null && selectedRenter.room?.floor !== undefined
-                              ? String(selectedRenter.room.floor)
+                              ? `Floor ${selectedRenter.room.floor}`
                               : "-"
                           }
                           colors={colors}
                         />
-                        <RenterDetail label="Joining date" value={selectedRenter.joiningDate || "-"} colors={colors} />
-                        <RenterDetail label="Monthly fee" value={money(Number(selectedRenter.monthlyFee || 0))} colors={colors} />
-                        <RenterDetail label="Security deposit" value={money(Number(selectedRenter.securityDeposit || 0))} colors={colors} />
+                        <RenterDetail label="Joining Date" value={selectedRenter.joiningDate || "-"} colors={colors} />
                         {(() => {
                           const roommates = selectedRenter?.roomId
                             ? activeRenters.filter(
@@ -539,31 +965,101 @@ export function RentersScreen(props: RentersScreenProps) {
                           if (roommates.length === 0) return null;
                           return (
                             <RenterDetail
-                              label="Roommates"
+                              label="Roommates in same room"
                               value={roommates.map((r) => getName(r)).join(", ")}
                               colors={colors}
                             />
                           );
                         })()}
-                        <RenterDetail label="Renter ID" value={selectedRenter.id} colors={colors} />
-                        <RenterDetail label="User ID" value={selectedRenter.user?.id || "-"} colors={colors} />
+                      </View>
+                    </View>
+
+                    {/* Section 2: Financial Terms */}
+                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <Ionicons name="cash-outline" size={15} color="#10B981" />
+                        <Text style={[styles.renterDetailSectionTitle, { color: "#10B981" }]}>Financial Terms</Text>
+                      </View>
+                      <View style={styles.renterDetailsGrid}>
+                        <RenterDetail label="Monthly Rent" value={money(Number(selectedRenter.monthlyFee || 0))} colors={colors} />
+                        <RenterDetail label="Security Deposit" value={money(Number(selectedRenter.securityDeposit || 0))} colors={colors} />
+                        <RenterDetail
+                          label="Billing Schedule"
+                          value={
+                            selectedRenter.joiningDate
+                              ? `Recurs monthly on Day ${parseInt(selectedRenter.joiningDate.slice(8, 10), 10) || 1}`
+                              : "Standard 1st of month"
+                          }
+                          colors={colors}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Section 3: Contact & Personal Details */}
+                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <Ionicons name="person-circle-outline" size={15} color={colors.primary} />
+                        <Text style={[styles.renterDetailSectionTitle, { color: colors.primary }]}>Contact & Personal Details</Text>
+                      </View>
+                      <View style={styles.renterDetailsGrid}>
+                        <RenterDetail label="Full Name" value={getName(selectedRenter)} colors={colors} />
+                        <RenterDetail label="Primary Phone" value={selectedRenter.phone || selectedRenter.user?.phone || "-"} colors={colors} />
+                        <RenterDetail label="Email Address" value={getEmail(selectedRenter) || "-"} colors={colors} />
+                        <RenterDetail label="Gender" value={selectedRenter.user?.gender || "-"} colors={colors} />
+                        <RenterDetail label="Date of Birth" value={selectedRenter.user?.dateOfBirth || "-"} colors={colors} />
+                      </View>
+                    </View>
+
+                    {/* Section 4: Guardian & Emergency Contact */}
+                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <Ionicons name="shield-outline" size={15} color="#F59E0B" />
+                        <Text style={[styles.renterDetailSectionTitle, { color: "#F59E0B" }]}>Guardian & Emergency</Text>
+                      </View>
+                      <View style={styles.renterDetailsGrid}>
+                        <RenterDetail label="Guardian Name" value={selectedRenter.guardianName || "-"} colors={colors} />
+                        <RenterDetail label="Guardian Phone" value={selectedRenter.guardianPhone || "-"} colors={colors} />
+                        <RenterDetail label="Emergency Contact Person" value={selectedRenter.user?.emergencyContactName || "-"} colors={colors} />
+                        <RenterDetail label="Emergency Contact Phone" value={selectedRenter.user?.emergencyContactPhone || "-"} colors={colors} />
+                      </View>
+                    </View>
+
+                    {/* Section 5: Address */}
+                    <View style={[styles.detailSectionPanel, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <Ionicons name="location-outline" size={15} color={colors.secondary} />
+                        <Text style={[styles.renterDetailSectionTitle, { color: colors.secondary }]}>Permanent Address</Text>
+                      </View>
+                      <View style={styles.renterDetailsGrid}>
+                        <RenterDetail label="Address" value={selectedRenter.user?.address || "-"} colors={colors} />
+                        <RenterDetail label="City" value={selectedRenter.user?.city || "-"} colors={colors} />
+                        <RenterDetail label="State" value={selectedRenter.user?.state || "-"} colors={colors} />
+                        <RenterDetail label="Pincode" value={selectedRenter.user?.pincode || "-"} colors={colors} />
                       </View>
                     </View>
 
                     <View style={styles.renterDetailsActions}>
                       <TouchableOpacity
-                        style={[styles.editButton, { flex: 1, justifyContent: "center", paddingVertical: 12, borderColor: colors.primary }]}
-                        onPress={() => onOpenEditRenter(selectedRenter)}
+                        style={[styles.editButton, { flex: 1, justifyContent: "center", paddingVertical: 14, backgroundColor: colors.primary }]}
+                        onPress={() => {
+                          haptic.medium();
+                          setShowRenterDetailsModal(false);
+                          onOpenEditRenter(selectedRenter);
+                        }}
                       >
-                        <Ionicons name="create-outline" size={18} color={colors.primary} />
-                        <Text style={[styles.editButtonText, { color: colors.primary }]}>Edit renter</Text>
+                        <Ionicons name="create-outline" size={18} color="#FFFFFF" />
+                        <Text style={[styles.editButtonText, { color: "#FFFFFF" }]}>Edit Resident</Text>
                       </TouchableOpacity>
+
                       <TouchableOpacity
-                        style={[styles.removeButton, { flex: 1, justifyContent: "center", paddingVertical: 12, backgroundColor: colors.dangerLight, borderColor: colors.danger }]}
-                        onPress={() => onRemoveRenter(selectedRenter)}
+                        style={[styles.removeButton, { flex: 1, justifyContent: "center", paddingVertical: 14, backgroundColor: colors.dangerLight, borderColor: colors.danger }]}
+                        onPress={() => {
+                          haptic.heavy();
+                          onRemoveRenter(selectedRenter);
+                        }}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                        <Text style={[styles.removeButtonText, { color: colors.danger }]}>Delete renter</Text>
+                        <Text style={[styles.removeButtonText, { color: colors.danger }]}>Delete Resident</Text>
                       </TouchableOpacity>
                     </View>
                   </>
@@ -599,7 +1095,13 @@ export function RentersScreen(props: RentersScreenProps) {
                     <Text style={[styles.modalTitle, { color: colors.text }]}>Add Renter</Text>
                     <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>Create login, assign a room and save renter details.</Text>
                   </View>
-                  <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.grayFill }]} onPress={() => setShowRenterModal(false)}>
+                  <TouchableOpacity
+                    style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
+                    onPress={() => {
+                      haptic.light();
+                      setShowRenterModal(false);
+                    }}
+                  >
                     <Ionicons name="close" size={22} color={colors.secondary} />
                   </TouchableOpacity>
                 </View>
@@ -642,7 +1144,13 @@ export function RentersScreen(props: RentersScreenProps) {
                 </Text>
 
                 <Text style={[styles.label, { color: colors.text }]}>Room *</Text>
-                <TouchableOpacity style={[styles.selector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} onPress={() => setRenterRoomPickerOpen(true)}>
+                <TouchableOpacity
+                  style={[styles.selector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  onPress={() => {
+                    haptic.selection();
+                    setRenterRoomPickerOpen(true);
+                  }}
+                >
                   <Text style={[styles.selectorText, { color: colors.text }, !selectedRoom && { color: colors.secondary }]}>
                     {selectedRoom ? `Room ${selectedRoom.roomNumber}` : "Select active room"}
                   </Text>
@@ -652,7 +1160,10 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.label, { color: colors.text }]}>Joining & Recurring Due Date *</Text>
                 <TouchableOpacity
                   style={[styles.dateSelector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                  onPress={() => setCalendarTarget("add")}
+                  onPress={() => {
+                    haptic.selection();
+                    setCalendarTarget("add");
+                  }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <Ionicons name="calendar-outline" size={20} color={colors.primary} />
@@ -698,7 +1209,14 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.label, { color: colors.text }]}>Pincode (optional)</Text>
                 <TextInput style={[styles.input, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, color: colors.text }]} value={pincode} onChangeText={setPincode} placeholder="Pincode" placeholderTextColor={colors.secondary} keyboardType="numeric" />
 
-                <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} disabled={renterSaving} onPress={onAddRenter}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { backgroundColor: colors.primary }]}
+                  disabled={renterSaving}
+                  onPress={() => {
+                    haptic.medium();
+                    onAddRenter();
+                  }}
+                >
                   {renterSaving ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
@@ -723,7 +1241,13 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Select room</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>Active rooms in this hostel</Text>
               </View>
-              <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.grayFill }]} onPress={() => setRenterRoomPickerOpen(false)}>
+              <TouchableOpacity
+                style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
+                onPress={() => {
+                  haptic.light();
+                  setRenterRoomPickerOpen(false);
+                }}
+              >
                 <Ionicons name="close" size={22} color={colors.secondary} />
               </TouchableOpacity>
             </View>
@@ -746,6 +1270,7 @@ export function RentersScreen(props: RentersScreenProps) {
                       isFull && { opacity: 0.45 },
                     ]}
                     onPress={() => {
+                      haptic.selection();
                       setRenterRoomId(room.id);
                       setRenterRoomPickerOpen(false);
                     }}
@@ -781,13 +1306,25 @@ export function RentersScreen(props: RentersScreenProps) {
                     <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Renter</Text>
                     <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>Update assignment and renter details.</Text>
                   </View>
-                  <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.grayFill }]} onPress={() => setShowEditRenterModal(false)}>
+                  <TouchableOpacity
+                    style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
+                    onPress={() => {
+                      haptic.light();
+                      setShowEditRenterModal(false);
+                    }}
+                  >
                     <Ionicons name="close" size={22} color={colors.secondary} />
                   </TouchableOpacity>
                 </View>
 
                 <Text style={[styles.label, { color: colors.text }]}>Room *</Text>
-                <TouchableOpacity style={[styles.selector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} onPress={() => setEditRenterRoomPickerOpen(true)}>
+                <TouchableOpacity
+                  style={[styles.selector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  onPress={() => {
+                    haptic.selection();
+                    setEditRenterRoomPickerOpen(true);
+                  }}
+                >
                   <Text style={[styles.selectorText, { color: colors.text }, !editSelectedRoom && { color: colors.secondary }]}>
                     {editSelectedRoom ? `Room ${editSelectedRoom.roomNumber}` : "Select active room"}
                   </Text>
@@ -834,7 +1371,10 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.label, { color: colors.text }]}>Joining & Recurring Due Date *</Text>
                 <TouchableOpacity
                   style={[styles.dateSelector, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                  onPress={() => setCalendarTarget("edit")}
+                  onPress={() => {
+                    haptic.selection();
+                    setCalendarTarget("edit");
+                  }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                     <Ionicons name="calendar-outline" size={20} color={colors.primary} />
@@ -866,13 +1406,27 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.label, { color: colors.text }]}>Status</Text>
                 <View style={styles.statusSelectorRow}>
                   {["ACTIVE", "INACTIVE", "LEFT"].map((status) => (
-                    <TouchableOpacity key={status} style={[styles.statusSelectorButton, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }, editRenterStatus === status && styles.statusSelectorButtonActive]} onPress={() => setEditRenterStatus(status)}>
+                    <TouchableOpacity
+                      key={status}
+                      style={[styles.statusSelectorButton, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }, editRenterStatus === status && styles.statusSelectorButtonActive]}
+                      onPress={() => {
+                        haptic.selection();
+                        setEditRenterStatus(status);
+                      }}
+                    >
                       <Text style={[styles.statusSelectorText, { color: colors.secondary }, editRenterStatus === status && styles.statusSelectorTextActive]}>{status}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
 
-                <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} disabled={editRenterSaving} onPress={onUpdateRenter}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { backgroundColor: colors.primary }]}
+                  disabled={editRenterSaving}
+                  onPress={() => {
+                    haptic.medium();
+                    onUpdateRenter();
+                  }}
+                >
                   {editRenterSaving ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.primaryButtonText}>Save Changes</Text><Ionicons name="checkmark" size={19} color="#FFFFFF" /></>}
                 </TouchableOpacity>
               </ScrollView>
@@ -890,7 +1444,13 @@ export function RentersScreen(props: RentersScreenProps) {
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Select room</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>Select an active room with available beds.</Text>
               </View>
-              <TouchableOpacity style={[styles.closeButton, { backgroundColor: colors.grayFill }]} onPress={() => setEditRenterRoomPickerOpen(false)}>
+              <TouchableOpacity
+                style={[styles.closeButton, { backgroundColor: colors.grayFill }]}
+                onPress={() => {
+                  haptic.light();
+                  setEditRenterRoomPickerOpen(false);
+                }}
+              >
                 <Ionicons name="close" size={22} color={colors.secondary} />
               </TouchableOpacity>
             </View>
@@ -913,6 +1473,7 @@ export function RentersScreen(props: RentersScreenProps) {
                       isFull && { opacity: 0.45 },
                     ]}
                     onPress={() => {
+                      haptic.selection();
                       setEditRenterRoomId(room.id);
                       setEditRenterRoomPickerOpen(false);
                     }}
@@ -942,6 +1503,7 @@ export function RentersScreen(props: RentersScreenProps) {
         visible={calendarTarget !== null}
         initialDate={calendarTarget === "add" ? joiningDate : editJoiningDate}
         onSelectDate={(selectedDate) => {
+          haptic.selection();
           if (calendarTarget === "add") {
             setJoiningDate(selectedDate);
           } else if (calendarTarget === "edit") {
@@ -949,8 +1511,23 @@ export function RentersScreen(props: RentersScreenProps) {
           }
           setCalendarTarget(null);
         }}
-        onClose={() => setCalendarTarget(null)}
+        onClose={() => {
+          haptic.light();
+          setCalendarTarget(null);
+        }}
         title="Select Recurring Due Date"
+      />
+
+      {/* RENTER ONBOARDING QR MODAL */}
+      <RenterOnboardingQRModal
+        visible={showQRModal}
+        onClose={() => {
+          haptic.light();
+          setShowQRModal(false);
+        }}
+        hostelId={selectedHostel?.id || ""}
+        hostelName={selectedHostel?.name || "StayNexa Resident Onboarding"}
+        rooms={currentHostelRooms}
       />
     </View>
   );
@@ -958,44 +1535,283 @@ export function RentersScreen(props: RentersScreenProps) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  screenContent: { padding: 20, paddingBottom: 110 },
-  actionRow: { marginTop: 6, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  sectionTitle: { fontSize: 17, fontWeight: "800", color: COLORS.text },
-  sectionSubtitle: { marginTop: 3, color: COLORS.secondary, fontSize: 12 },
-  smallPrimaryButton: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.primary, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 12 },
-  smallPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13, marginLeft: 4 },
-  renterSearchBox: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", backgroundColor: COLORS.background, marginBottom: 16 },
-  renterSearchInput: { flex: 1, marginLeft: 9, color: COLORS.text, fontSize: 13 },
-  renterCard: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
+  screenContent: { padding: 18, paddingBottom: 110 },
+
+  // Metrics Banner
+  metricsContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    gap: 10,
+    marginBottom: 14,
+  },
+  metricCard: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
     shadowColor: "#0F172A",
     shadowOpacity: 0.04,
     shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  metricIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  miniStatBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  miniStatText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  metricNumber: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  metricLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+
+  // Action Row
+  actionRow: { marginBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: COLORS.text },
+  sectionSubtitle: { marginTop: 2, color: COLORS.secondary, fontSize: 11 },
+  smallPrimaryButton: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, gap: 4 },
+  smallPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 12 },
+  outlineActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 9,
+  },
+  outlineActionText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  // Filter Tabs
+  filterTabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterTabPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterTabPillText: {
+    fontSize: 12,
+  },
+  filterCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  filterCountBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  // Search Box
+  renterSearchBox: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", backgroundColor: COLORS.background, marginBottom: 12 },
+  renterSearchInput: { flex: 1, marginLeft: 9, color: COLORS.text, fontSize: 13 },
+
+  // Resident Card
+  renterCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
-  avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.primaryLight, alignItems: "center", justifyContent: "center", marginRight: 12 },
-  avatarText: { color: COLORS.primary, fontWeight: "800", fontSize: 16 },
-  avatarLarge: { width: 50, height: 50, borderRadius: 16, backgroundColor: COLORS.primaryLight, alignItems: "center", justifyContent: "center", marginRight: 13 },
-  avatarLargeText: { color: COLORS.primary, fontWeight: "800", fontSize: 19 },
-  itemTitle: { fontSize: 15, fontWeight: "800", color: COLORS.text },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  avatarWrapper: {
+    position: "relative",
+    marginRight: 12,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  statusDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+    flexWrap: "wrap",
+  },
+  roomBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  roomBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  dateChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  dateChipText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  rentPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  rentPillText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  statusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  statusBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  renterSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 9,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  infoMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  infoMetaText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  contactActionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  contactActionText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  actionPillButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  actionPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  avatarLarge: { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.primaryLight, alignItems: "center", justifyContent: "center", marginRight: 13 },
+  avatarLargeText: { color: COLORS.primary, fontWeight: "800", fontSize: 20 },
   itemSubtitle: { marginTop: 3, fontSize: 12, color: COLORS.secondary },
   roomTag: { marginTop: 5, alignSelf: "flex-start", backgroundColor: COLORS.grayFill, color: COLORS.primaryDark, fontSize: 11, fontWeight: "800", borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusBadgeText: { fontSize: 10, fontWeight: "800" },
   detailSectionPanel: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 14,
     padding: 14,
-    marginBottom: 14,
+    marginBottom: 12,
     backgroundColor: COLORS.card,
+  },
+  heroActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  heroActionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  heroActionText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.45)", justifyContent: "flex-end" },
   modalKeyboard: { width: "100%" },
@@ -1005,15 +1821,15 @@ const styles = StyleSheet.create({
   modalSubtitle: { marginTop: 3, fontSize: 12, color: COLORS.secondary },
   closeButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.grayFill, alignItems: "center", justifyContent: "center" },
   renterDetailsLoading: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 12 },
-  renterDetailsHero: { flexDirection: "row", alignItems: "center", paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginBottom: 14 },
+  renterDetailsHero: { flexDirection: "row", alignItems: "center", paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginBottom: 10 },
   renterDetailsName: { fontSize: 18, fontWeight: "800", color: COLORS.text },
-  renterDetailSectionTitle: { fontSize: 13, fontWeight: "800", color: COLORS.primaryDark, marginTop: 12, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
-  renterDetailsGrid: { gap: 10, marginBottom: 6 },
+  renterDetailSectionTitle: { fontSize: 13, fontWeight: "800", color: COLORS.primaryDark, textTransform: "uppercase", letterSpacing: 0.5 },
+  renterDetailsGrid: { gap: 10, marginBottom: 4 },
   detailItem: { paddingVertical: 4 },
   detailLabel: { fontSize: 11, color: COLORS.secondary, fontWeight: "600" },
   detailValue: { fontSize: 13, fontWeight: "700", color: COLORS.text, marginTop: 2 },
-  renterDetailsActions: { flexDirection: "row", gap: 10, marginTop: 20 },
-  editButton: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: COLORS.primary, borderRadius: 12 },
+  renterDetailsActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  editButton: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12 },
   editButtonText: { color: COLORS.primary, fontWeight: "700", fontSize: 13 },
   removeButton: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: COLORS.danger, borderRadius: 12, backgroundColor: COLORS.dangerLight },
   removeButtonText: { color: COLORS.danger, fontWeight: "700", fontSize: 13 },

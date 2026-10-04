@@ -33,6 +33,7 @@ import { COLORS } from "../constants/theme";
 import { Hostel, Room, Renter } from "../types";
 import { Header, EmptyState } from "../components/common";
 import { useTheme } from "../contexts/ThemeContext";
+import { haptic } from "../utils/haptics";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Occupant {
@@ -127,6 +128,16 @@ export function RoomsScreen({
   const [occupants, setOccupants] = useState<Occupant[]>([]);
   const [occupantsLoading, setOccupantsLoading] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // ── Capacity state ─────────────────────────────────────────────────────────
   const [capacitySaving, setCapacitySaving] = useState(false);
@@ -137,9 +148,6 @@ export function RoomsScreen({
   const [transferTargetId, setTransferTargetId] = useState("");
   const [transferSaving, setTransferSaving] = useState(false);
   const [showTransferPicker, setShowTransferPicker] = useState(false);
-
-  // ── refreshing ─────────────────────────────────────────────────────────────
-  const [refreshing, setRefreshing] = useState(false);
 
   // ── Derived occupant counts from renters list ─────────────────────────────
   const currentHostelId = selectedHostel?.id || selectedHostelId;
@@ -309,7 +317,18 @@ export function RoomsScreen({
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.screenContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <Header
           title="Rooms"
           subtitle={selectedHostel?.name || "Select a hostel"}
@@ -341,7 +360,13 @@ export function RoomsScreen({
         {/* Action row */}
         <View style={styles.actionRow}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Room Management</Text>
-          <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={() => setShowRoomModal(true)}>
+          <TouchableOpacity
+            style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              haptic.medium();
+              setShowRoomModal(true);
+            }}
+          >
             <Ionicons name="add" size={19} color="#FFFFFF" />
             <Text style={styles.smallPrimaryText}>Add Room</Text>
           </TouchableOpacity>
@@ -366,7 +391,10 @@ export function RoomsScreen({
                 <TouchableOpacity
                   key={room.id}
                   style={[styles.roomCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                  onPress={() => openRoomDetail(room)}
+                  onPress={() => {
+                    haptic.cardPress();
+                    openRoomDetail(room);
+                  }}
                   activeOpacity={0.78}
                 >
                   {/* Top row: Icon container + Delete button */}
@@ -378,6 +406,7 @@ export function RoomsScreen({
                       style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
                       onPress={(e) => {
                         e.stopPropagation?.();
+                        haptic.heavy();
                         onDeleteRoom(room);
                       }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

@@ -1834,13 +1834,6 @@ export function SuperAdminScreen({
                 <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                   <TouchableOpacity
                     style={[styles.smallActionBtn, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
-                    onPress={() => void loadSystemLogs()}
-                    disabled={loadingSystemLogs}
-                  >
-                    <Ionicons name="refresh-outline" size={13} color={theme.text} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.smallActionBtn, { backgroundColor: theme.surfaceSecondary, borderColor: theme.border }]}
                     onPress={handleClearSystemLogs}
                   >
                     <Ionicons name="trash-outline" size={13} color={theme.red} />

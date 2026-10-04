@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   FlatList,
   TouchableOpacity,
   Modal,
@@ -24,6 +25,7 @@ import { ExpensesView } from "../components/ExpensesView";
 import { API_URL } from "../services/api";
 import * as Clipboard from "expo-clipboard";
 import { haptic } from "../utils/haptics";
+import { SwipeableRow } from "../components/SwipeableRow";
 
 interface PaymentsScreenProps {
   fees: Fee[];
@@ -206,9 +208,31 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
     setRemindTargetFee(null);
   }
 
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh?.();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false} removeClippedSubviews={true}>
+      <ScrollView
+        contentContainerStyle={styles.screenContent}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={true}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {/* Navigation & Header */}
         <View style={styles.topNavRow}>
           {onBack && (
@@ -284,7 +308,11 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Option 1: Fees (All Records) */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => { setFeeFilter("all"); setActiveOption("fees_all"); }}
+                onPress={() => {
+                  haptic.cardPress();
+                  setFeeFilter("all");
+                  setActiveOption("fees_all");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(59,130,246,0.18)" : COLORS.primaryLight }]}>
@@ -302,7 +330,11 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Option 2: Paid People */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => { setFeeFilter("paid"); setActiveOption("fees_paid"); }}
+                onPress={() => {
+                  haptic.cardPress();
+                  setFeeFilter("paid");
+                  setActiveOption("fees_paid");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(16,185,129,0.18)" : COLORS.successLight }]}>
@@ -320,7 +352,11 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Option 3: Unpaid People */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => { setFeeFilter("unpaid"); setActiveOption("fees_unpaid"); }}
+                onPress={() => {
+                  haptic.cardPress();
+                  setFeeFilter("unpaid");
+                  setActiveOption("fees_unpaid");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(239,68,68,0.18)" : COLORS.dangerLight }]}>
@@ -338,7 +374,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Option 4: Payment Receipts (Proofs) */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => setActiveOption("proofs")}
+                onPress={() => {
+                  haptic.cardPress();
+                  setActiveOption("proofs");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(245,158,11,0.18)" : COLORS.warningLight }]}>
@@ -358,7 +397,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Option 5: Remind Option */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => setActiveOption("reminders")}
+                onPress={() => {
+                  haptic.cardPress();
+                  setActiveOption("reminders");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(139,92,246,0.18)" : COLORS.purpleLight }]}>
@@ -373,14 +415,17 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
               </TouchableOpacity>
 
-              {/* Option 5: Expenses & Net Profit Tracker */}
+              {/* Option 6: Expenses & Net Profit Tracker */}
               <TouchableOpacity
                 style={[styles.menuCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => setActiveOption("expenses")}
+                onPress={() => {
+                  haptic.cardPress();
+                  setActiveOption("expenses");
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuIconContainer, { backgroundColor: isDark ? "rgba(245,158,11,0.18)" : "rgba(245, 158, 11, 0.12)" }]}>
-                  <Ionicons name="pie-chart-outline" size={22} color="#F59E0B" />
+                  <Ionicons name="analytics-outline" size={22} color="#F59E0B" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuCardTitle, { color: colors.text }]}>Expenses & Financial Tracker</Text>
@@ -401,7 +446,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {onGenerateMonthlyFees && (
                 <TouchableOpacity
                   style={[styles.menuActionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                  onPress={() => setShowGenerateModal?.(true)}
+                  onPress={() => {
+                    haptic.medium();
+                    setShowGenerateModal?.(true);
+                  }}
                   activeOpacity={0.75}
                 >
                   <View style={[styles.menuActionIconBox, { backgroundColor: COLORS.primaryLight }]}>
@@ -417,7 +465,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               {/* Action: Create Custom Fee */}
               <TouchableOpacity
                 style={[styles.menuActionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                onPress={onOpenFeeModal}
+                onPress={() => {
+                  haptic.medium();
+                  onOpenFeeModal();
+                }}
                 activeOpacity={0.75}
               >
                 <View style={[styles.menuActionIconBox, { backgroundColor: COLORS.successLight }]}>
@@ -502,7 +553,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               <View style={styles.pillGroup}>
                 <TouchableOpacity
                   style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, feeFilter === "all" && styles.filterPillActive]}
-                  onPress={() => setFeeFilter("all")}
+                  onPress={() => {
+                    haptic.selection();
+                    setFeeFilter("all");
+                  }}
                 >
                   <Text style={[styles.filterPillText, { color: colors.secondary }, feeFilter === "all" && styles.filterPillTextActive]}>
                     All ({fees.length})
@@ -511,7 +565,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 
                 <TouchableOpacity
                   style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, feeFilter === "paid" && styles.filterPillPaidActive]}
-                  onPress={() => setFeeFilter("paid")}
+                  onPress={() => {
+                    haptic.selection();
+                    setFeeFilter("paid");
+                  }}
                 >
                   <Ionicons name="checkmark-circle" size={12} color={feeFilter === "paid" ? "#FFFFFF" : COLORS.success} />
                   <Text style={[styles.filterPillText, { color: colors.secondary }, feeFilter === "paid" && styles.filterPillTextActive]}>
@@ -521,7 +578,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 
                 <TouchableOpacity
                   style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, feeFilter === "unpaid" && styles.filterPillUnpaidActive]}
-                  onPress={() => setFeeFilter("unpaid")}
+                  onPress={() => {
+                    haptic.selection();
+                    setFeeFilter("unpaid");
+                  }}
                 >
                   <Ionicons name="alert-circle" size={12} color={feeFilter === "unpaid" ? "#FFFFFF" : COLORS.danger} />
                   <Text style={[styles.filterPillText, { color: colors.secondary }, feeFilter === "unpaid" && styles.filterPillTextActive]}>
@@ -534,13 +594,22 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                 {onGenerateMonthlyFees && (
                   <TouchableOpacity
                     style={[styles.generateButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                    onPress={() => setShowGenerateModal?.(true)}
+                    onPress={() => {
+                      haptic.light();
+                      setShowGenerateModal?.(true);
+                    }}
                   >
                     <Ionicons name="flash-outline" size={13} color={colors.primary} />
                     <Text style={[styles.generateButtonText, { color: colors.primary }]}>Auto</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenFeeModal}>
+                <TouchableOpacity
+                  style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]}
+                  onPress={() => {
+                    haptic.medium();
+                    onOpenFeeModal();
+                  }}
+                >
                   <Ionicons name="add" size={16} color="#FFFFFF" />
                   <Text style={styles.smallPrimaryText}>Add Fee</Text>
                 </TouchableOpacity>
@@ -709,7 +778,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                         {remaining > 0 && onRemindFee ? (
                           <TouchableOpacity
                             style={[styles.remindBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-                            onPress={() => openCustomReminder(fee, renterTitle)}
+                            onPress={() => {
+                              haptic.light();
+                              openCustomReminder(fee, renterTitle);
+                            }}
                           >
                             <Ionicons name="notifications-outline" size={13} color={colors.primary} />
                             <Text style={[styles.remindBtnText, { color: colors.primary }]}>Remind</Text>
@@ -719,7 +791,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                         {onDeleteFee ? (
                           <TouchableOpacity
                             style={[styles.deleteBtn, { backgroundColor: colors.dangerLight }]}
-                            onPress={() => onDeleteFee(fee.id)}
+                            onPress={() => {
+                              haptic.heavy();
+                              onDeleteFee(fee.id);
+                            }}
                           >
                             <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
@@ -742,7 +817,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
             <View style={styles.pillGroupScroll}>
               <TouchableOpacity
                 style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, proofFilter === "all" && styles.filterPillActive]}
-                onPress={() => setProofFilter("all")}
+                onPress={() => {
+                  haptic.selection();
+                  setProofFilter("all");
+                }}
               >
                 <Text style={[styles.filterPillText, { color: colors.secondary }, proofFilter === "all" && styles.filterPillTextActive]}>
                   All ({payments.length})
@@ -750,7 +828,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, proofFilter === "submitted" && styles.filterPillActive]}
-                onPress={() => setProofFilter("submitted")}
+                onPress={() => {
+                  haptic.selection();
+                  setProofFilter("submitted");
+                }}
               >
                 <Text style={[styles.filterPillText, { color: colors.secondary }, proofFilter === "submitted" && styles.filterPillTextActive]}>
                   Needs Review ({pendingProofsCount})
@@ -758,7 +839,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, proofFilter === "approved" && styles.filterPillPaidActive]}
-                onPress={() => setProofFilter("approved")}
+                onPress={() => {
+                  haptic.selection();
+                  setProofFilter("approved");
+                }}
               >
                 <Text style={[styles.filterPillText, { color: colors.secondary }, proofFilter === "approved" && styles.filterPillTextActive]}>
                   Approved
@@ -766,7 +850,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.filterPill, { backgroundColor: colors.card, borderColor: colors.border }, proofFilter === "rejected" && styles.filterPillUnpaidActive]}
-                onPress={() => setProofFilter("rejected")}
+                onPress={() => {
+                  haptic.selection();
+                  setProofFilter("rejected");
+                }}
               >
                 <Text style={[styles.filterPillText, { color: colors.secondary }, proofFilter === "rejected" && styles.filterPillTextActive]}>
                   Rejected
@@ -797,7 +884,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                   : isApproved ? COLORS.successLight : isRejected ? COLORS.dangerLight : COLORS.warningLight;
                 const statusFg = isApproved ? COLORS.success : isRejected ? COLORS.danger : COLORS.warning;
 
-                return (
+                const proofCardContent = (
                   <View key={payment.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <View style={styles.cardHeader}>
                       <View style={[styles.proofIconBox, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.primaryLight }]}>
@@ -816,7 +903,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                         {onDeletePayment ? (
                           <TouchableOpacity
                             style={[styles.deleteBtn, { backgroundColor: colors.dangerLight }]}
-                            onPress={() => onDeletePayment(payment.id, payment.hostelId || selectedHostel?.id)}
+                            onPress={() => {
+                              haptic.heavy();
+                              onDeletePayment(payment.id, payment.hostelId || selectedHostel?.id);
+                            }}
                           >
                             <Ionicons name="trash-outline" size={15} color={colors.danger} />
                           </TouchableOpacity>
@@ -897,7 +987,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                             },
                           ]}
                           disabled={paymentActionId === payment.id}
-                          onPress={() => onReviewPayment(payment.id, "REJECTED", payment.hostelId || selectedHostel?.id)}
+                          onPress={() => {
+                            haptic.medium();
+                            onReviewPayment(payment.id, "REJECTED", payment.hostelId || selectedHostel?.id);
+                          }}
                         >
                           {paymentActionId === payment.id ? (
                             <ActivityIndicator size="small" color={colors.danger} />
@@ -912,7 +1005,10 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                         <TouchableOpacity
                           style={[styles.reviewBtn, styles.approveBtn, { backgroundColor: colors.primary }]}
                           disabled={paymentActionId === payment.id}
-                          onPress={() => onReviewPayment(payment.id, "APPROVED", payment.hostelId || selectedHostel?.id)}
+                          onPress={() => {
+                            haptic.success();
+                            onReviewPayment(payment.id, "APPROVED", payment.hostelId || selectedHostel?.id);
+                          }}
                         >
                           {paymentActionId === payment.id ? (
                             <ActivityIndicator size="small" color="#FFFFFF" />
@@ -927,6 +1023,44 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                     ) : null}
                   </View>
                 );
+
+                if (isSubmitted) {
+                  return (
+                    <SwipeableRow
+                      key={payment.id}
+                      leftActions={[
+                        {
+                          label: "Approve",
+                          icon: "checkmark-circle-outline",
+                          backgroundColor: "#10B981",
+                          onPress: () =>
+                            onReviewPayment(
+                              payment.id,
+                              "APPROVED",
+                              payment.hostelId || selectedHostel?.id
+                            ),
+                        },
+                      ]}
+                      rightActions={[
+                        {
+                          label: "Reject",
+                          icon: "close-circle-outline",
+                          backgroundColor: "#EF4444",
+                          onPress: () =>
+                            onReviewPayment(
+                              payment.id,
+                              "REJECTED",
+                              payment.hostelId || selectedHostel?.id
+                            ),
+                        },
+                      ]}
+                    >
+                      {proofCardContent}
+                    </SwipeableRow>
+                  );
+                }
+
+                return proofCardContent;
               })
             )}
           </View>

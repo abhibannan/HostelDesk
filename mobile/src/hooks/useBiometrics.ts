@@ -51,11 +51,11 @@ export function useBiometrics(hasSession: boolean): BiometricsState {
         setIsHardwareAvailable(hasHardware);
         setIsEnrolled(enrolled);
 
-        let typeLabel = "Biometrics";
+        let typeLabel = "Biometric / Face Recognition";
         if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-          typeLabel = Platform.OS === "ios" ? "Face ID" : "Facial Recognition";
+          typeLabel = Platform.OS === "ios" ? "Face ID" : "Biometric / Face Recognition";
         } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-          typeLabel = Platform.OS === "ios" ? "Touch ID" : "Fingerprint";
+          typeLabel = Platform.OS === "ios" ? "Touch ID" : "Biometric / Fingerprint";
         } else if (types.includes(LocalAuthentication.AuthenticationType.IRIS)) {
           typeLabel = "Iris Scan";
         }

@@ -28,7 +28,10 @@ export function AnimatedPressable({ children, onPress, style }: any) {
 
   return (
     <Pressable
-      onPressIn={() => Animated.spring(scale, { toValue: 0.95, useNativeDriver: true }).start()}
+      onPressIn={() => {
+        haptic.cardPress();
+        Animated.spring(scale, { toValue: 0.95, useNativeDriver: true }).start();
+      }}
       onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
       onPress={onPress}
     >
@@ -45,7 +48,7 @@ interface HeaderProps {
   onRefresh?: () => void;
 }
 
-export function Header({ title, subtitle, onRefresh }: HeaderProps) {
+export function Header({ title, subtitle }: HeaderProps) {
   const { colors } = useTheme();
   return (
     <View style={styles.header}>
@@ -53,14 +56,6 @@ export function Header({ title, subtitle, onRefresh }: HeaderProps) {
         <Text style={[styles.headerTitle, { color: colors.text }]}>{title}</Text>
         {subtitle ? <Text style={[styles.headerSubtitle, { color: colors.secondary }]}>{subtitle}</Text> : null}
       </View>
-      {onRefresh ? (
-        <TouchableOpacity
-          onPress={onRefresh}
-          style={[styles.refreshButton, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
-        >
-          <Ionicons name="refresh-outline" size={21} color={colors.primary} />
-        </TouchableOpacity>
-      ) : null}
     </View>
   );
 }
@@ -70,9 +65,10 @@ interface StatCardProps {
   value: string | number;
   icon: keyof typeof Ionicons.glyphMap;
   tone: "blue" | "green" | "orange" | "purple" | "red";
+  onPress?: () => void;
 }
 
-export function StatCard({ title, value, icon, tone }: StatCardProps) {
+export function StatCard({ title, value, icon, tone, onPress }: StatCardProps) {
   const { colors: themeColors } = useTheme();
   const toneMap = {
     blue: { bg: themeColors.primaryLight, icon: themeColors.primary },
@@ -83,7 +79,7 @@ export function StatCard({ title, value, icon, tone }: StatCardProps) {
   } as const;
   const toneStyle = toneMap[tone];
 
-  return (
+  const content = (
     <View style={[styles.statCard, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
       <View style={[styles.statIcon, { backgroundColor: toneStyle.bg }]}>
         <Ionicons name={icon} size={21} color={toneStyle.icon} />
@@ -92,6 +88,22 @@ export function StatCard({ title, value, icon, tone }: StatCardProps) {
       <Text style={[styles.statValue, { color: themeColors.text }]}>{value}</Text>
     </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={() => {
+          haptic.cardPress();
+          onPress();
+        }}
+      >
+        {content}
+      </TouchableOpacity>
+    );
+  }
+
+  return content;
 }
 
 interface SectionTitleProps {
@@ -121,10 +133,19 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ icon, title, description }: EmptyStateProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   return (
     <View style={styles.emptyState}>
-      <View style={[styles.emptyIcon, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+      <View
+        style={[
+          styles.emptyIcon,
+          {
+            backgroundColor: isDark ? "rgba(59, 130, 246, 0.12)" : colors.primaryLight,
+            borderColor: isDark ? "rgba(59, 130, 246, 0.25)" : "rgba(37, 99, 235, 0.18)",
+            borderWidth: 1,
+          },
+        ]}
+      >
         <Ionicons name={icon} size={28} color={colors.primary} />
       </View>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
@@ -143,7 +164,7 @@ interface BottomTabProps {
 }
 
 export function BottomTab({ icon, activeIcon, label, active, onPress, badge }: BottomTabProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   return (
     <TouchableOpacity
       style={styles.bottomTab}
@@ -151,10 +172,21 @@ export function BottomTab({ icon, activeIcon, label, active, onPress, badge }: B
         haptic.selection();
         onPress();
       }}
-      activeOpacity={0.75}
+      activeOpacity={0.7}
     >
-      <View style={{ position: "relative" }}>
-        <Ionicons name={active ? activeIcon : icon} size={23} color={active ? colors.primary : colors.secondary} />
+      <View
+        style={[
+          styles.tabIconWrapper,
+          active && {
+            backgroundColor: isDark ? "rgba(59, 130, 246, 0.18)" : "rgba(37, 99, 235, 0.10)",
+          },
+        ]}
+      >
+        <Ionicons
+          name={active ? activeIcon : icon}
+          size={22}
+          color={active ? colors.primary : colors.secondary}
+        />
         {Boolean(badge) && (
           <View style={[styles.tabBadge, { backgroundColor: COLORS.danger }]}>
             <Text style={styles.tabBadgeText}>{badge}</Text>
@@ -216,8 +248,17 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 17, fontWeight: "700", marginBottom: 6 },
   emptyDescription: { fontSize: 13, textAlign: "center", lineHeight: 19 },
-  bottomTab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 8 },
-  bottomLabel: { fontSize: 11, marginTop: 4, fontWeight: "600" },
+  bottomTab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 6 },
+  tabIconWrapper: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+    position: "relative",
+  },
+  bottomLabel: { fontSize: 11, marginTop: 2, fontWeight: "600" },
   bottomLabelActive: { fontWeight: "800" },
   tabBadge: {
     position: "absolute",
