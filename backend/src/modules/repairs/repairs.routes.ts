@@ -4,6 +4,7 @@ import { db, firebaseAuth } from "../../config/firebase.js";
 import { requireAuth } from "../../middleware/auth.middleware.js";
 import { requireHostelAccess } from "../../middleware/hostel-access.middleware.js";
 import { writeAuditLog } from "../../utils/audit.js";
+import { createNotification } from "../notifications/notifications.server.js";
 
 const router = Router();
 
@@ -207,6 +208,36 @@ router.post(
           priority: repair.priority,
         },
       });
+
+      // Auto-notify admins and repair personnel
+      try {
+        const [hostelAdminsSnap, repairPersonsSnap] = await Promise.all([
+          db.collection("hostelAdmins").where("hostelId", "==", hostelId).get(),
+          db.collection("repairPersons").where("hostelId", "==", hostelId).where("status", "==", "ACTIVE").get()
+        ]);
+
+        const adminIds = hostelAdminsSnap.docs.map((d) => d.data().adminId).filter(Boolean);
+        const repairUserIds = repairPersonsSnap.docs.map((d) => d.data().userId).filter(Boolean);
+        
+        const notifyIds = [...new Set([...adminIds, ...repairUserIds])];
+        
+        const renterName = renterData?.firstName ? `${renterData.firstName} ${renterData.lastName || ""}`.trim() : "A resident";
+        const roomName = renterData?.roomName || roomId ? `Room ${renterData?.roomName || roomId}` : "a room";
+
+        await Promise.all(notifyIds.map(userId => 
+          createNotification({
+            userId: String(userId),
+            type: "REPAIR_CREATED",
+            title: `New Repair Request: ${parsed.data.title}`,
+            message: `${renterName} in ${roomName} reported an issue: ${parsed.data.description.substring(0, 100)}${parsed.data.description.length > 100 ? '...' : ''}. Priority: ${parsed.data.priority || "MEDIUM"}.`,
+            hostelId,
+            entityType: "REPAIR",
+            entityId: repairRef.id,
+          }).catch(() => {})
+        ));
+      } catch (notifyErr) {
+        console.error("Failed to notify staff about new repair:", notifyErr);
+      }
 
       clearRepairsCache(hostelId);
       res.status(201).json({

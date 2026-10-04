@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "688054379292",
+    "project_id": "staynexa-17a95",
+    "storage_bucket": "staynexa-17a95.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:688054379292:android:3f542fab1c4059ee7fd0d9",
+        "android_client_info": {
+          "package_name": "com.staynexa.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiqijZe1F74XYcEUJITlv3i6PEPveO-iY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -9,6 +9,7 @@ import { errorMiddleware } from "./middleware/error.middleware.js";
 
 import { telemetryMiddleware } from "./services/telemetry.service.js";
 import { maintenanceMiddleware } from "./middleware/maintenance.middleware.js";
+import { generalApiLimiter, authRateLimiter } from "./middleware/rate-limit.middleware.js";
 
 const app = express();
 
@@ -29,17 +30,21 @@ app.use(
   }),
 );
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 app.use(
   express.urlencoded({
     extended: true,
-    limit: "1mb",
+    limit: "20mb",
   }),
 );
 
 // Track legitimate API traffic telemetry
 app.use(telemetryMiddleware);
+
+// Rate limiting on API and Auth endpoints
+app.use("/api/v1/auth", authRateLimiter);
+app.use("/api/v1", generalApiLimiter);
 
 // Protect platform during maintenance mode
 app.use("/api/v1", maintenanceMiddleware);

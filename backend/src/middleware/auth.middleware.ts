@@ -151,3 +151,5 @@ export async function requireAuth(
   req.authUser = resolved.authUser;
   next();
 }
+
+export const authMiddleware = requireAuth;

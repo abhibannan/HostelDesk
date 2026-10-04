@@ -1,15 +1,15 @@
-import { Platform } from "react-native";
-
-// Local development machine LAN IP
-const LOCAL_LAN_IP = "192.168.0.183";
-
-// Remote hosted backend (Render)
+// Remote hosted backend (Render) — always used in production builds
 const REMOTE_API_URL = "https://staynexa-1.onrender.com/api/v1";
-// Local development server
+
+// Local development server — only used when DEV flag is set manually
+const LOCAL_LAN_IP = "192.168.0.183";
 const LOCAL_API_URL = `http://${LOCAL_LAN_IP}:3000/api/v1`;
 
+// Set USE_LOCAL=true ONLY when developing locally with a running backend
+const USE_LOCAL = false;
+
 export const getBaseApiUrl = (): string => {
-  return LOCAL_API_URL;
+  return USE_LOCAL ? LOCAL_API_URL : REMOTE_API_URL;
 };
 
 export const API_URL = getBaseApiUrl();

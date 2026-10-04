@@ -11,6 +11,7 @@ import notificationsRouter from "../modules/notifications/notifications.routes.j
 import dashboardRouter from "../modules/dashboard/dashboard.routes.js";
 import uploadsRouter from "../modules/uploads/uploads.routes.js";
 import expensesRouter from "../modules/expenses/expenses.routes.js";
+import auditLogsRouter from "../modules/audit-logs/audit-logs.routes.js";
 
 import { getPlatformConfig } from "../services/telemetry.service.js";
 
@@ -44,5 +45,6 @@ router.use("/dashboard", dashboardRouter);
 router.use("/uploads", uploadsRouter);
 router.use("/hostels", payment_proofs_routes);
 router.use("/hostels", expensesRouter);
+router.use("/hostels", auditLogsRouter);
 
 export default router;

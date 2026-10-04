@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "com.staynexa.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "POST_NOTIFICATIONS",
         "VIBRATE",
@@ -44,7 +45,9 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#2563EB"
+          "color": "#2563EB",
+          "defaultChannel": "default",
+          "sounds": []
         }
       ],
       "expo-sharing"

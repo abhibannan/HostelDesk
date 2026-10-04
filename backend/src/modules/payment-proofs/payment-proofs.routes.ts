@@ -37,12 +37,19 @@ export function clearPaymentsCache(hostelId?: string) {
   }
 }
 
-async function resolveProofUrlsForPayments(documents: (FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot)[]) {
+async function resolveProofUrlsForPayments(
+  documents: (FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot)[],
+  req?: any,
+) {
   const now = Date.now();
   const rawList = documents.map((doc) => ({
     id: doc.id,
     ...(doc.data() ?? {}),
   })) as Record<string, any>[];
+
+  const host = req?.get ? req.get("host") : null;
+  const protocol = req?.protocol || "http";
+  const baseUrl = host ? `${protocol}://${host}` : "";
 
   // Identify upload IDs that need resolution
   const missingUploadIds = new Set<string>();
@@ -65,19 +72,15 @@ async function resolveProofUrlsForPayments(documents: (FirebaseFirestore.QueryDo
         if (!snap.exists) return;
         const uploadId = snap.id;
         const storagePath = String(snap.data()?.storagePath ?? "");
-        if (!storagePath) return;
-        try {
-          const [proofUrl] = await storage.file(storagePath).getSignedUrl({
-            action: "read",
-            expires: now + 50 * 60 * 1000, // 50 minutes
-          });
-          signedUrlCache.set(uploadId, {
-            url: proofUrl,
-            expiresAt: now + 45 * 60 * 1000,
-          });
-        } catch (err) {
-          console.error(`PAYMENT PROOF URL FAILED (${uploadId}):`, err);
-        }
+        
+        const proofUrl = baseUrl
+          ? `${baseUrl}/api/v1/uploads/${uploadId}/file`
+          : `/api/v1/uploads/${uploadId}/file`;
+
+        signedUrlCache.set(uploadId, {
+          url: proofUrl,
+          expiresAt: now + 45 * 60 * 1000,
+        });
       })
     );
   }
@@ -135,7 +138,7 @@ router.get(
           : [];
       }
 
-      const payments = await resolveProofUrlsForPayments(documents);
+      const payments = await resolveProofUrlsForPayments(documents, req);
       payments.sort((a, b) =>
         String(b.submittedAt ?? b.createdAt ?? "").localeCompare(
           String(a.submittedAt ?? a.createdAt ?? ""),

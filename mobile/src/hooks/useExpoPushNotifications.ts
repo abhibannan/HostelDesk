@@ -1,27 +1,15 @@
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import Constants, { ExecutionEnvironment } from "expo-constants";
-import { isRunningInExpoGo } from "expo";
 
-// Check if running in Expo Go client
+// Check if running in Expo Go client (which can't use native FCM device tokens)
 function checkIsExpoGo(): boolean {
   try {
-    if (typeof isRunningInExpoGo === "function" && isRunningInExpoGo()) {
-      return true;
-    }
-    const env = Constants.executionEnvironment;
-    if (env === ExecutionEnvironment.StoreClient || (env as any) === "storeClient") {
-      return true;
-    }
-    if ((Constants as any).appOwnership === "expo") {
-      return true;
-    }
-    if (Constants.expoVersion != null && Constants.expoVersion !== "") {
-      return true;
-    }
+    // In a standalone build, global.__expo is not set to "storeClient"
+    const appOwnership = (global as any).expo?.modules?.ExpoConstants?.appOwnership;
+    if (appOwnership === "expo") return true;
   } catch {
-    // fallback
+    // fallback — assume standalone
   }
   return false;
 }
@@ -113,6 +101,8 @@ export function useExpoPushNotifications(
     return () => subscription.remove();
   }, [onNotificationResponse]);
 
+  // Returns the native FCM device token (bypasses Expo's push relay which requires
+  // deprecated Legacy FCM). Our backend sends directly via FCM V1 HTTP API.
   const getExpoPushToken = useCallback(async (): Promise<string | null> => {
     try {
       if (checkIsExpoGo()) {
@@ -126,13 +116,9 @@ export function useExpoPushNotifications(
           : await Notifications.requestPermissionsAsync();
       if (permission.status !== "granted") return null;
 
-      const projectId =
-        Constants.expoConfig?.extra?.eas?.projectId ??
-        Constants.easConfig?.projectId ??
-        "2b6b1dbc-f72f-421f-80dc-40137f441017";
-
-      const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
-      return tokenResult.data;
+      // Use native FCM device token — works with FCM V1 directly
+      const tokenResult = await Notifications.getDevicePushTokenAsync();
+      return tokenResult.data as string;
     } catch (error) {
       console.warn("Unable to register for remote push notifications:", error);
       return null;
