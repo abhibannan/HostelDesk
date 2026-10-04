@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   ActivityIndicator,
   Alert,
@@ -21,12 +22,14 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { COLORS } from "../constants/theme";
 import { useTheme } from "../contexts/ThemeContext";
 import { API_URL, parseJsonResponse } from "../services/api";
 import { Fee, Hostel, Notification, Payment, Repair, Renter, User } from "../types";
 import { money, today } from "../utils/formatters";
 import { EmptyState } from "../components/common";
+import { setSuspendBiometrics } from "../hooks/useBiometrics";
 
 interface RenterPortalScreenProps {
   user: User;
@@ -45,6 +48,7 @@ interface RenterPortalScreenProps {
     amount: number;
     paymentDate: string;
     proofUri: string;
+    proofBase64?: string | null;
     proofMimeType?: string | null;
     reference?: string;
     notes?: string;
@@ -420,6 +424,7 @@ export function RenterPortalScreen({
   const [proofReference, setProofReference] = useState("");
   const [proofNotes, setProofNotes] = useState("");
   const [proofImageUri, setProofImageUri] = useState<string | null>(null);
+  const [proofBase64, setProofBase64] = useState<string | null>(null);
   const [proofMimeType, setProofMimeType] = useState<string | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
 
@@ -444,6 +449,27 @@ export function RenterPortalScreen({
     .filter((p) => String(p.status).toUpperCase() === "APPROVED")
     .reduce((acc, p) => acc + Number(p.amount || 0), 0);
 
+  // ── Image compression helper ───────────────────────────────────────────────
+  async function compressImage(
+    uri: string,
+  ): Promise<{ uri: string; base64: string | null; mimeType: string }> {
+    try {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1200 } }], // cap at 1200px wide
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+      );
+      return {
+        uri: manipulated.uri,
+        base64: manipulated.base64 ?? null,
+        mimeType: "image/jpeg",
+      };
+    } catch {
+      // Fallback: return original if manipulation fails
+      return { uri, base64: null, mimeType: "image/jpeg" };
+    }
+  }
+
   async function pickImageFromGallery() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -451,15 +477,19 @@ export function RenterPortalScreen({
         Alert.alert("Permission Required", "Please allow access to photos to upload payment proof.");
         return;
       }
+      setSuspendBiometrics(true);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
-        quality: 0.6,
+        quality: 0.8,
+        base64: false, // We'll get base64 from manipulator instead
       });
       if (!result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        setProofImageUri(asset.uri);
-        setProofMimeType(asset.mimeType ?? null);
+        const compressed = await compressImage(asset.uri);
+        setProofImageUri(compressed.uri);
+        setProofBase64(compressed.base64);
+        setProofMimeType(compressed.mimeType);
       }
     } catch {
       Alert.alert("Error", "Could not pick image from gallery.");
@@ -473,14 +503,18 @@ export function RenterPortalScreen({
         Alert.alert("Permission Required", "Please allow camera access to capture payment proof.");
         return;
       }
+      setSuspendBiometrics(true);
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
-        quality: 0.6,
+        quality: 0.8,
+        base64: false, // We'll get base64 from manipulator instead
       });
       if (!result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        setProofImageUri(asset.uri);
-        setProofMimeType(asset.mimeType ?? null);
+        const compressed = await compressImage(asset.uri);
+        setProofImageUri(compressed.uri);
+        setProofBase64(compressed.base64);
+        setProofMimeType(compressed.mimeType);
       }
     } catch {
       Alert.alert("Error", "Could not open camera.");
@@ -495,6 +529,7 @@ export function RenterPortalScreen({
     setProofReference("");
     setProofNotes("");
     setProofImageUri(null);
+    setProofBase64(null);
     setProofMimeType(null);
     setShowProofModal(true);
   }
@@ -521,6 +556,7 @@ export function RenterPortalScreen({
         amount: amt,
         paymentDate: proofDate || today(),
         proofUri: proofImageUri,
+        proofBase64,
         proofMimeType,
         reference: proofReference.trim() || undefined,
         notes: proofNotes.trim() || undefined,
@@ -578,7 +614,12 @@ export function RenterPortalScreen({
   return (
     <View style={[s.container, { backgroundColor: theme.background }]}>
       {/* Top Renter Bar */}
-      <View style={[s.topBar, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+      <LinearGradient
+        colors={isDark ? [theme.card, theme.surfaceSecondary] : ["#ffffff", "#f8fafc"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={[s.topBar, { borderBottomColor: theme.border }]}
+      >
         <View style={s.topBarInfo}>
           <Text style={[s.topGreeting, { color: theme.secondary }]}>Welcome,</Text>
           <Text style={[s.topName, { color: theme.text }]} numberOfLines={1}>
@@ -600,7 +641,7 @@ export function RenterPortalScreen({
           >
             <Ionicons
               name={isDark ? "sunny-outline" : "moon-outline"}
-              size={19}
+              size={20}
               color={theme.primary}
             />
           </TouchableOpacity>
@@ -609,17 +650,17 @@ export function RenterPortalScreen({
             onPress={onRefresh}
             accessibilityLabel="Refresh"
           >
-            <Ionicons name="refresh-outline" size={19} color={theme.primary} />
+            <Ionicons name="refresh-outline" size={20} color={theme.primary} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.iconBtn, { backgroundColor: theme.dangerLight }]}
             onPress={onLogout}
             accessibilityLabel="Logout"
           >
-            <Ionicons name="log-out-outline" size={19} color={theme.danger} />
+            <Ionicons name="log-out-outline" size={20} color={theme.danger} />
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
 
       {/* Renter Segment Tabs with Active Indicator */}
       <View style={[s.tabNav, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -739,7 +780,12 @@ export function RenterPortalScreen({
           <View style={{ width: containerWidth, flex: 1 }}>
             <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
               {/* Quick Hero Banner Card */}
-              <View style={[s.welcomeBanner, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <LinearGradient
+                colors={isDark ? [theme.card, theme.surfaceSecondary] : ["#ffffff", "#f1f5f9"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[s.welcomeBanner, { borderColor: theme.border }]}
+              >
                 <View style={[s.bannerAvatar, { backgroundColor: theme.primary }]}>
                   <Text style={s.bannerAvatarText}>
                     {(renterName.charAt(0) || "R").toUpperCase()}
@@ -753,7 +799,7 @@ export function RenterPortalScreen({
                     <Text style={[s.activeTagText, { color: theme.success }]}>Active Resident</Text>
                   </View>
                 </View>
-              </View>
+              </LinearGradient>
 
               {/* Quick Stats Grid */}
               <View style={s.statsRow}>
@@ -1145,17 +1191,25 @@ export function RenterPortalScreen({
                       ) : null}
 
                       <View style={s.paymentActionRow}>
-                        {p.proofUrl ? (
-                          <TouchableOpacity
-                            style={[s.viewProofBtn, { backgroundColor: theme.primaryLight }]}
-                            onPress={() => setPreviewImageUrl(p.proofUrl || null)}
-                          >
-                            <Ionicons name="image-outline" size={14} color={theme.primary} />
-                            <Text style={[s.viewProofBtnText, { color: theme.primary }]}>
-                              View Screenshot
-                            </Text>
-                          </TouchableOpacity>
-                        ) : null}
+                        {(() => {
+                          const proofUrl =
+                            p.proofUrl ||
+                            (p.proofUploadId
+                              ? `${API_URL}/uploads/${p.proofUploadId}/file`
+                              : null);
+
+                          return proofUrl ? (
+                            <TouchableOpacity
+                              style={[s.viewProofBtn, { backgroundColor: theme.primaryLight }]}
+                              onPress={() => setPreviewImageUrl(proofUrl)}
+                            >
+                              <Ionicons name="image-outline" size={14} color={theme.primary} />
+                              <Text style={[s.viewProofBtnText, { color: theme.primary }]}>
+                                View Screenshot
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null;
+                        })()}
 
                         {!isApproved ? (
                           <TouchableOpacity
@@ -2125,308 +2179,375 @@ function createStyles(theme: ReturnType<typeof useTheme>["colors"], isDark: bool
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 14,
+      paddingHorizontal: 22,
+      paddingTop: 16,
+      paddingBottom: 20,
       borderBottomWidth: 1,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.04,
+      shadowRadius: 10,
+      elevation: 3,
     },
     topBarInfo: {
       flex: 1,
-      marginRight: 12,
+      marginRight: 14,
     },
     topGreeting: {
-      fontSize: 12,
-      fontWeight: "500",
+      fontSize: 13,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      opacity: 0.8,
     },
     topName: {
-      fontSize: 19,
-      fontWeight: "800",
-      letterSpacing: -0.3,
-      marginTop: 1,
+      fontSize: 24,
+      fontWeight: "900",
+      letterSpacing: -0.5,
+      marginTop: 2,
     },
     hostelBadge: {
       flexDirection: "row",
       alignItems: "center",
       alignSelf: "flex-start",
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 8,
-      marginTop: 4,
-      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 10,
+      marginTop: 6,
+      gap: 6,
     },
     hostelBadgeText: {
-      fontSize: 12,
-      fontWeight: "700",
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 0.3,
     },
     topActions: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
+      gap: 12,
     },
     iconBtn: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: "center",
       justifyContent: "center",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 6,
+      elevation: 2,
     },
     tabNav: {
       flexDirection: "row",
       borderBottomWidth: 1,
+      paddingHorizontal: 12,
     },
     tabNavItem: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 11,
-      gap: 3,
-      borderBottomWidth: 2,
+      paddingVertical: 14,
+      gap: 4,
+      borderBottomWidth: 3,
       borderBottomColor: "transparent",
     },
     tabNavLabel: {
-      fontSize: 11,
+      fontSize: 13,
       fontWeight: "600",
+      letterSpacing: 0.2,
     },
     tabNavLabelActive: {
-      fontWeight: "700",
+      fontWeight: "800",
     },
     scrollContent: {
-      padding: 16,
+      padding: 20,
       paddingBottom: 110,
     },
     welcomeBanner: {
       flexDirection: "row",
       alignItems: "center",
-      padding: 16,
-      borderRadius: 16,
+      padding: 20,
+      borderRadius: 20,
       borderWidth: 1,
-      gap: 14,
-      marginBottom: 16,
+      gap: 16,
+      marginBottom: 20,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: isDark ? 0.25 : 0.05,
+      shadowRadius: 10,
+      elevation: 3,
     },
     bannerAvatar: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: 58,
+      height: 58,
+      borderRadius: 29,
       alignItems: "center",
       justifyContent: "center",
     },
     bannerAvatarText: {
       color: "#FFFFFF",
-      fontSize: 22,
-      fontWeight: "700",
+      fontSize: 24,
+      fontWeight: "800",
     },
     bannerName: {
-      fontSize: 17,
-      fontWeight: "700",
+      fontSize: 20,
+      fontWeight: "800",
+      letterSpacing: -0.3,
     },
     bannerSub: {
-      fontSize: 13,
-      marginTop: 2,
+      fontSize: 14,
+      marginTop: 4,
+      opacity: 0.8,
     },
     activeTag: {
       flexDirection: "row",
       alignItems: "center",
       alignSelf: "flex-start",
-      paddingHorizontal: 8,
-      paddingVertical: 2,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
       borderRadius: 12,
-      marginTop: 6,
-      gap: 5,
+      marginTop: 8,
+      gap: 6,
     },
     activeDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
     },
     activeTagText: {
-      fontSize: 11,
-      fontWeight: "600",
+      fontSize: 12,
+      fontWeight: "700",
+      letterSpacing: 0.5,
     },
     statsRow: {
       flexDirection: "row",
-      gap: 12,
-      marginBottom: 16,
+      gap: 14,
+      marginBottom: 20,
     },
     statBox: {
       flex: 1,
-      padding: 14,
-      borderRadius: 12,
-      borderLeftWidth: 4,
+      padding: 16,
+      borderRadius: 18,
+      borderLeftWidth: 5,
       borderWidth: 1,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.2 : 0.04,
+      shadowRadius: 6,
+      elevation: 2,
     },
     statBoxLabel: {
-      fontSize: 12,
-      fontWeight: "500",
+      fontSize: 13,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      opacity: 0.8,
     },
     statBoxVal: {
-      fontSize: 18,
-      fontWeight: "800",
-      marginTop: 4,
+      fontSize: 24,
+      fontWeight: "900",
+      marginTop: 6,
+      letterSpacing: -0.5,
     },
     card: {
-      borderRadius: 14,
-      padding: 16,
+      borderRadius: 20,
+      padding: 20,
       borderWidth: 1,
-      marginBottom: 16,
+      marginBottom: 18,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 10,
+      elevation: 3,
     },
     cardHeader: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      marginBottom: 14,
+      gap: 10,
+      marginBottom: 16,
       borderBottomWidth: 1,
-      paddingBottom: 10,
+      paddingBottom: 12,
     },
     cardTitle: {
-      fontSize: 15,
-      fontWeight: "700",
+      fontSize: 17,
+      fontWeight: "800",
       flex: 1,
+      letterSpacing: -0.3,
     },
     editProfileBtn: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 8,
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 10,
     },
     editProfileBtnText: {
-      fontSize: 12,
-      fontWeight: "700",
+      fontSize: 13,
+      fontWeight: "800",
     },
     detailRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      paddingVertical: 9,
+      paddingVertical: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
     },
     detailKey: {
-      fontSize: 13,
+      fontSize: 14,
+      fontWeight: "600",
+      opacity: 0.9,
     },
     detailVal: {
-      fontSize: 13,
-      fontWeight: "600",
-      maxWidth: "60%",
+      fontSize: 14,
+      fontWeight: "700",
+      maxWidth: "65%",
       textAlign: "right",
     },
     shortcutsRow: {
       flexDirection: "row",
-      gap: 12,
-      marginTop: 4,
+      gap: 14,
+      marginTop: 6,
     },
     shortcutBtn: {
       flex: 1,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 14,
-      borderRadius: 12,
-      gap: 8,
+      paddingVertical: 16,
+      borderRadius: 16,
+      gap: 10,
     },
     shortcutBtnText: {
       color: "#FFFFFF",
-      fontSize: 14,
-      fontWeight: "700",
+      fontSize: 15,
+      fontWeight: "800",
     },
     feeBanner: {
-      padding: 16,
-      borderRadius: 14,
+      padding: 20,
+      borderRadius: 18,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       borderWidth: 1,
-      gap: 12,
-      marginBottom: 16,
+      gap: 14,
+      marginBottom: 20,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 8,
+      elevation: 2,
     },
     feeBannerTitle: {
-      fontSize: 16,
-      fontWeight: "700",
+      fontSize: 18,
+      fontWeight: "800",
+      letterSpacing: -0.3,
     },
     feeBannerSub: {
-      fontSize: 13,
-      marginTop: 3,
+      fontSize: 14,
+      marginTop: 4,
+      opacity: 0.9,
     },
     payProofBtn: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 10,
-      gap: 6,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      gap: 8,
     },
     payProofBtnText: {
       color: "#FFFFFF",
-      fontSize: 13,
-      fontWeight: "700",
+      fontSize: 14,
+      fontWeight: "800",
     },
     sectionHeading: {
-      fontSize: 16,
-      fontWeight: "700",
-      marginBottom: 10,
+      fontSize: 18,
+      fontWeight: "800",
+      marginBottom: 12,
+      letterSpacing: -0.3,
     },
     feeCard: {
-      borderRadius: 14,
-      padding: 16,
+      borderRadius: 18,
+      padding: 18,
       borderWidth: 1,
-      marginBottom: 12,
+      marginBottom: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 8,
+      elevation: 3,
     },
     feeCardHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
+      marginBottom: 14,
     },
     feeMonthText: {
-      fontSize: 16,
-      fontWeight: "700",
+      fontSize: 18,
+      fontWeight: "800",
+      letterSpacing: -0.3,
     },
     feeDueDate: {
-      fontSize: 12,
-      marginTop: 2,
+      fontSize: 13,
+      marginTop: 4,
+      opacity: 0.8,
     },
     feeDivider: {
       height: 1,
-      marginVertical: 12,
+      marginVertical: 14,
+      opacity: 0.5,
     },
     feeAmountsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
     },
     feeLabel: {
-      fontSize: 11,
-      fontWeight: "500",
+      fontSize: 13,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      opacity: 0.7,
     },
     feeVal: {
-      fontSize: 14,
-      fontWeight: "700",
+      fontSize: 16,
+      fontWeight: "800",
       marginTop: 2,
     },
     feeActionBtn: {
-      marginTop: 14,
-      paddingVertical: 10,
-      borderRadius: 8,
+      marginTop: 18,
+      paddingVertical: 12,
+      borderRadius: 14,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 6,
+      gap: 8,
     },
     feeActionBtnText: {
-      fontSize: 13,
-      fontWeight: "600",
-    },
-    badge: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 6,
-    },
-    badgeText: {
-      fontSize: 11,
+      fontSize: 14,
       fontWeight: "700",
     },
+    badge: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 8,
+    },
+    badgeText: {
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 0.5,
+    },
     paymentHistoryCard: {
-      borderRadius: 12,
-      padding: 14,
+      borderRadius: 16,
+      padding: 16,
       borderWidth: 1,
-      marginBottom: 10,
+      marginBottom: 14,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.04,
+      shadowRadius: 8,
+      elevation: 2,
     },
     paymentHistoryTop: {
       flexDirection: "row",
@@ -2434,402 +2555,432 @@ function createStyles(theme: ReturnType<typeof useTheme>["colors"], isDark: bool
       alignItems: "center",
     },
     paymentAmt: {
-      fontSize: 16,
-      fontWeight: "700",
+      fontSize: 18,
+      fontWeight: "800",
     },
     paymentDate: {
-      fontSize: 12,
+      fontSize: 13,
       marginTop: 2,
+      opacity: 0.8,
     },
     paymentRef: {
-      fontSize: 12,
-      marginTop: 6,
-    },
-    paymentNotes: {
-      fontSize: 12,
-      marginTop: 4,
-    },
-    adminReviewBox: {
-      padding: 8,
-      borderRadius: 6,
+      fontSize: 13,
       marginTop: 8,
     },
+    paymentNotes: {
+      fontSize: 13,
+      marginTop: 4,
+      fontStyle: "italic",
+    },
+    adminReviewBox: {
+      padding: 10,
+      borderRadius: 8,
+      marginTop: 10,
+    },
     adminReviewText: {
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: "600",
     },
     paymentActionRow: {
       flexDirection: "row",
-      gap: 8,
-      marginTop: 10,
+      gap: 10,
+      marginTop: 12,
     },
     viewProofBtn: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 6,
-      gap: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      gap: 6,
     },
     viewProofBtnText: {
-      fontSize: 12,
-      fontWeight: "600",
+      fontSize: 13,
+      fontWeight: "700",
     },
     deleteProofBtn: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 6,
-      gap: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      gap: 6,
     },
     deleteProofBtnText: {
-      fontSize: 12,
-      fontWeight: "600",
+      fontSize: 13,
+      fontWeight: "700",
     },
     sectionHeaderRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 14,
+      alignItems: "flex-end",
+      marginBottom: 16,
     },
     sectionTitle: {
-      fontSize: 18,
-      fontWeight: "700",
+      fontSize: 20,
+      fontWeight: "800",
+      letterSpacing: -0.3,
     },
     sectionSubtitle: {
-      fontSize: 13,
-      marginTop: 2,
-      lineHeight: 18,
+      fontSize: 14,
+      marginTop: 4,
+      lineHeight: 20,
+      opacity: 0.8,
     },
     addRepairBtn: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: 8,
-      gap: 4,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 12,
+      gap: 6,
     },
     addRepairBtnText: {
       color: "#FFFFFF",
-      fontSize: 13,
+      fontSize: 14,
       fontWeight: "700",
     },
     repairCard: {
-      borderRadius: 14,
-      padding: 16,
+      borderRadius: 16,
+      padding: 18,
       borderWidth: 1,
-      marginBottom: 12,
+      marginBottom: 14,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.04,
+      shadowRadius: 8,
+      elevation: 2,
     },
     repairCardTop: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 8,
+      marginBottom: 10,
     },
     repairTitle: {
-      fontSize: 15,
-      fontWeight: "700",
+      fontSize: 16,
+      fontWeight: "800",
       flex: 1,
-      marginRight: 8,
+      marginRight: 10,
     },
     repairDesc: {
-      fontSize: 13,
-      lineHeight: 18,
-      marginBottom: 12,
+      fontSize: 14,
+      lineHeight: 20,
+      marginBottom: 14,
+      opacity: 0.9,
     },
     progressTrackRow: {
       flexDirection: "row",
-      gap: 6,
-      marginBottom: 12,
+      gap: 8,
+      marginBottom: 14,
     },
     progressStep: {
       flex: 1,
-      paddingVertical: 6,
-      borderRadius: 6,
+      paddingVertical: 8,
+      borderRadius: 8,
       alignItems: "center",
       justifyContent: "center",
     },
     progressStepText: {
       color: "#FFFFFF",
-      fontSize: 10,
-      fontWeight: "700",
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 0.5,
     },
     adminNotesBox: {
-      padding: 10,
-      borderRadius: 8,
+      padding: 12,
+      borderRadius: 10,
       borderWidth: 1,
-      marginBottom: 10,
+      marginBottom: 12,
     },
     adminNotesLabel: {
-      fontSize: 11,
-      fontWeight: "700",
-      marginBottom: 3,
+      fontSize: 12,
+      fontWeight: "800",
+      marginBottom: 4,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
     },
     adminNotesText: {
-      fontSize: 13,
-      lineHeight: 17,
+      fontSize: 14,
+      lineHeight: 20,
     },
     repairCardFooter: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginTop: 4,
+      marginTop: 6,
     },
     repairDate: {
-      fontSize: 11,
+      fontSize: 12,
+      opacity: 0.7,
     },
     repairPriority: {
-      fontSize: 11,
-      fontWeight: "700",
+      fontSize: 12,
+      fontWeight: "800",
     },
     clearAllBtn: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 6,
-      gap: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 10,
+      gap: 6,
     },
     clearAllBtnText: {
-      fontSize: 12,
-      fontWeight: "600",
+      fontSize: 13,
+      fontWeight: "700",
     },
     noticeCard: {
-      borderRadius: 12,
-      padding: 14,
+      borderRadius: 16,
+      padding: 16,
       borderWidth: 1,
-      borderLeftWidth: 4,
-      marginBottom: 10,
+      borderLeftWidth: 6,
+      marginBottom: 14,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.04,
+      shadowRadius: 8,
+      elevation: 2,
     },
     noticeCardHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 6,
-    },
-    noticeTitle: {
-      fontSize: 15,
-      fontWeight: "700",
-    },
-    noticeMsg: {
-      fontSize: 13,
-      lineHeight: 19,
       marginBottom: 8,
     },
+    noticeTitle: {
+      fontSize: 16,
+      fontWeight: "800",
+    },
+    noticeMsg: {
+      fontSize: 14,
+      lineHeight: 22,
+      marginBottom: 10,
+      opacity: 0.9,
+    },
     noticeDate: {
-      fontSize: 11,
+      fontSize: 12,
+      opacity: 0.7,
     },
     themeOptionBtn: {
       flex: 1,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      paddingVertical: 14,
-      paddingHorizontal: 12,
-      borderRadius: 12,
+      gap: 10,
+      paddingVertical: 16,
+      paddingHorizontal: 14,
+      borderRadius: 16,
       borderWidth: 1.5,
     },
     themeOptionText: {
-      fontSize: 14,
+      fontSize: 15,
+      fontWeight: "600",
     },
     passwordInputWrap: {
       flexDirection: "row",
       alignItems: "center",
       borderWidth: 1,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      minHeight: 48,
-      marginBottom: 14,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      minHeight: 52,
+      marginBottom: 16,
     },
     passwordInputText: {
       flex: 1,
-      fontSize: 15,
-      minHeight: 46,
+      fontSize: 16,
+      minHeight: 50,
     },
     feedbackBanner: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
+      gap: 10,
       borderWidth: 1,
-      borderRadius: 10,
-      padding: 12,
-      marginBottom: 14,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 16,
     },
     primaryButton: {
-      minHeight: 48,
-      borderRadius: 12,
+      minHeight: 52,
+      borderRadius: 14,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      paddingHorizontal: 16,
+      gap: 10,
+      paddingHorizontal: 20,
     },
     primaryButtonText: {
       color: "#FFFFFF",
-      fontSize: 15,
-      fontWeight: "700",
+      fontSize: 16,
+      fontWeight: "800",
     },
     dangerOutlineBtn: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      minHeight: 48,
-      borderRadius: 12,
+      gap: 10,
+      minHeight: 52,
+      borderRadius: 14,
       borderWidth: 1.5,
-      marginTop: 8,
+      marginTop: 10,
       backgroundColor: "transparent",
     },
     dangerOutlineBtnText: {
-      fontSize: 15,
-      fontWeight: "700",
+      fontSize: 16,
+      fontWeight: "800",
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.6)",
+      backgroundColor: "rgba(0,0,0,0.65)",
       justifyContent: "flex-end",
     },
     modalBox: {
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      padding: 20,
-      maxHeight: "88%",
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      padding: 24,
+      maxHeight: "90%",
       borderWidth: 1,
       borderBottomWidth: 0,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -6 },
+      shadowOpacity: 0.1,
+      shadowRadius: 16,
+      elevation: 20,
     },
     modalHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 16,
+      marginBottom: 20,
     },
     modalTitle: {
-      fontSize: 18,
-      fontWeight: "700",
+      fontSize: 22,
+      fontWeight: "800",
+      letterSpacing: -0.5,
     },
     inputLabel: {
-      fontSize: 13,
-      fontWeight: "600",
-      marginTop: 12,
-      marginBottom: 6,
+      fontSize: 14,
+      fontWeight: "700",
+      marginTop: 14,
+      marginBottom: 8,
+      opacity: 0.9,
     },
     input: {
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 14,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 15,
       borderWidth: 1,
     },
     textArea: {
-      minHeight: 80,
+      minHeight: 90,
       textAlignVertical: "top",
     },
     feeSelectorRow: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: 8,
+      gap: 10,
     },
     feeSelectChip: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 12,
       borderWidth: 1,
     },
     feeSelectChipText: {
-      fontSize: 13,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "700",
     },
     imagePickerOptions: {
       flexDirection: "row",
-      gap: 12,
-      marginTop: 4,
+      gap: 14,
+      marginTop: 6,
     },
     pickerOptionBtn: {
       flex: 1,
-      paddingVertical: 14,
-      borderRadius: 10,
+      paddingVertical: 16,
+      borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
-      gap: 6,
+      gap: 8,
       borderWidth: 1,
     },
     pickerOptionText: {
-      fontSize: 13,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "700",
     },
     previewContainer: {
-      marginTop: 8,
-      borderRadius: 10,
+      marginTop: 10,
+      borderRadius: 14,
       overflow: "hidden",
       borderWidth: 1,
     },
     previewImage: {
       width: "100%",
-      height: 180,
+      height: 200,
     },
     removeImageBtn: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 8,
-      gap: 4,
+      paddingVertical: 10,
+      gap: 6,
     },
     removeImageText: {
       color: "#FFFFFF",
-      fontSize: 12,
-      fontWeight: "700",
+      fontSize: 14,
+      fontWeight: "800",
     },
     prioritySelectorRow: {
       flexDirection: "row",
-      gap: 8,
+      gap: 10,
     },
     priorityChip: {
       flex: 1,
-      paddingVertical: 8,
+      paddingVertical: 12,
       alignItems: "center",
-      borderRadius: 8,
+      borderRadius: 12,
       borderWidth: 1,
     },
     priorityChipText: {
-      fontSize: 11,
-      fontWeight: "700",
+      fontSize: 12,
+      fontWeight: "800",
     },
     submitModalBtn: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 14,
-      borderRadius: 10,
-      gap: 8,
-      marginTop: 20,
-      marginBottom: 10,
+      paddingVertical: 16,
+      borderRadius: 14,
+      gap: 10,
+      marginTop: 24,
+      marginBottom: 12,
     },
     submitModalBtnText: {
       color: "#FFFFFF",
-      fontSize: 15,
-      fontWeight: "700",
+      fontSize: 16,
+      fontWeight: "800",
     },
     btnDisabled: {
-      opacity: 0.6,
+      opacity: 0.65,
     },
     previewModalOverlay: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.9)",
+      backgroundColor: "rgba(0,0,0,0.92)",
       justifyContent: "center",
       alignItems: "center",
     },
     closePreviewBtn: {
       position: "absolute",
-      top: 50,
-      right: 20,
+      top: 55,
+      right: 25,
       zIndex: 10,
-      padding: 8,
+      padding: 10,
     },
     fullPreviewImage: {
-      width: "92%",
-      height: "80%",
+      width: "95%",
+      height: "85%",
+      borderRadius: 16,
     },
   });
 }

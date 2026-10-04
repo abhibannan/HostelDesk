@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
+import * as FileSystem from "expo-file-system";
 import { MaintenanceTask, Repair } from "../types";
 import { API_URL } from "../services/api";
 
@@ -53,27 +54,29 @@ export function useRepairActions(cb: RepairActionsCallbacks) {
 
       // If a local image was picked/taken, upload it first
       if (photoToUpload && (photoToUpload.startsWith("file:") || photoToUpload.startsWith("content:"))) {
-        const form = new FormData();
         const filename = photoToUpload.split("/").pop() || "repair_completion.jpg";
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : `image/jpeg`;
 
-        form.append("file", {
-          uri: photoToUpload,
-          name: filename,
-          type,
-        } as any);
+        const base64Data = await FileSystem.readAsStringAsync(photoToUpload, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
 
         const uploadRes = await cb.request<any>("/uploads", {
           method: "POST",
-          body: form,
           headers: {
+            "Content-Type": "application/json",
             Accept: "application/json",
           },
+          body: JSON.stringify({
+            base64: base64Data,
+            originalName: filename,
+            contentType: type,
+          }),
         });
 
         if (uploadRes?.file?.id) {
-          resolvedPhotoUrl = `${API_URL}/uploads/${uploadRes.file.id}`;
+          resolvedPhotoUrl = `${API_URL}/uploads/${uploadRes.file.id}/file`;
         }
       }
 

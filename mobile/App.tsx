@@ -36,6 +36,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
+import * as FileSystem from "expo-file-system";
 
 import { COLORS } from "./src/constants/theme";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
@@ -351,6 +352,7 @@ function AppContent() {
     amount: number;
     paymentDate: string;
     proofUri: string;
+    proofBase64?: string | null;
     proofMimeType?: string | null;
     reference?: string;
     notes?: string;
@@ -361,18 +363,36 @@ function AppContent() {
     const hostelId = data.selectedHostelId || auth.currentRenterDoc.hostelId;
     if (!hostelId) throw new Error("Hostel ID is missing from your profile.");
 
-    const form = new FormData();
-    form.append("file", {
-      uri: params.proofUri,
-      name: `payment-proof-${Date.now()}.jpg`,
-      type: params.proofMimeType || "image/jpeg",
-    } as never);
+    let base64 = params.proofBase64;
+    if (!base64 && params.proofUri) {
+      try {
+        base64 = await FileSystem.readAsStringAsync(params.proofUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (readErr) {
+        console.warn("Could not read image as base64 with FileSystem:", readErr);
+      }
+    }
+
+    if (!base64) {
+      throw new Error("Unable to read payment proof image data.");
+    }
+
     const uploadResponse = await fetch(`${API_URL}/uploads`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${auth.token}` },
-      body: form,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({
+        base64,
+        originalName: `payment-proof-${Date.now()}.jpg`,
+        contentType: params.proofMimeType || "image/jpeg",
+      }),
     });
-    const uploadData = await parseJsonResponse(uploadResponse) as {
+
+    const uploadData = (await parseJsonResponse(uploadResponse)) as {
       file?: { id?: string };
       message?: string;
     };
@@ -740,6 +760,15 @@ function AppContent() {
               </View>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ marginTop: 20, alignItems: "center" }}
+            onPress={() => void auth.logout()}
+          >
+            <Text style={{ fontSize: 13, color: colors.secondary, fontWeight: "600" }}>
+              Log Out
+            </Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -882,6 +911,12 @@ function AppContent() {
       </SafeAreaView>
     );
   }
+
+  const pendingProofsCount = useMemo(() => {
+    return (data.payments || []).filter(
+      (p) => String(p.status || "").toUpperCase() === "SUBMITTED",
+    ).length;
+  }, [data.payments]);
 
   const isDetailSubPage =
     page === "payments" ||
@@ -1285,6 +1320,7 @@ function AppContent() {
             icon="menu-outline"
             activeIcon="menu"
             label="More"
+            badge={pendingProofsCount > 0 ? pendingProofsCount : undefined}
             active={
               page === "more" ||
               page === "fees" ||

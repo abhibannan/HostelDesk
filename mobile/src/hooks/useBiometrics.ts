@@ -5,6 +5,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const BIOMETRICS_PREF_KEY = "@staynexa_biometrics_enabled";
 
+export let shouldSuspendBiometrics = false;
+export const setSuspendBiometrics = (val: boolean) => {
+  shouldSuspendBiometrics = val;
+};
+
 export interface BiometricsState {
   isHardwareAvailable: boolean;
   isEnrolled: boolean;
@@ -122,8 +127,12 @@ export function useBiometrics(hasSession: boolean): BiometricsState {
         isBiometricsEnabled &&
         hasSession
       ) {
-        setIsLocked(true);
-        void promptUnlock();
+        if (shouldSuspendBiometrics) {
+          shouldSuspendBiometrics = false; // Reset flag
+        } else {
+          setIsLocked(true);
+          void promptUnlock();
+        }
       }
       appState.current = nextAppState;
     });

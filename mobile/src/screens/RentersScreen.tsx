@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Pressable,
   TextInput,
@@ -269,114 +270,130 @@ export function RentersScreen(props: RentersScreenProps) {
       })
     : currentHostelRenters;
 
+  const renderRenterCard = useCallback(({ item: renter }: { item: Renter }) => {
+    const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
+    const roomNumber =
+      renter.room?.roomNumber ||
+      rooms.find((room) => room.id === renter.roomId)?.roomNumber ||
+      "-";
+
+    return (
+      <Pressable
+        style={[styles.renterCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+        onPress={() => onOpenRenterDetails(renter)}
+      >
+        <View style={[styles.avatar, { backgroundColor: colors.primaryLight }]}>
+          <Text style={[styles.avatarText, { color: colors.primary }]}>
+            {getName(renter).charAt(0).toUpperCase()}
+          </Text>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.itemTitle, { color: colors.text }]}>{getName(renter)}</Text>
+          {getEmail(renter) ? (
+            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>{getEmail(renter)}</Text>
+          ) : null}
+          {renter.phone || renter.user?.phone ? (
+            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
+              Phone: {renter.phone || renter.user?.phone}
+            </Text>
+          ) : null}
+          {renter.guardianPhone ? (
+            <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>Guardian: {renter.guardianPhone}</Text>
+          ) : null}
+          <Text style={[styles.roomTag, { backgroundColor: colors.surfaceSecondary, color: colors.primary, borderColor: colors.border, borderWidth: 1 }]}>Room {roomNumber}</Text>
+        </View>
+
+        <View
+          style={[
+            styles.statusBadge,
+            { backgroundColor: active ? colors.successLight : colors.dangerLight },
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusBadgeText,
+              { color: active ? colors.success : colors.danger },
+            ]}
+          >
+            {active ? "ACTIVE" : String(renter.status || "INACTIVE")}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  }, [colors, rooms, onOpenRenterDetails]);
+
+  const renterKeyExtractor = useCallback((item: Renter) => item.id, []);
+
+  const ListHeader = (
+    <>
+      <Header
+        title="Renters"
+        subtitle={selectedHostel?.name || "Select a hostel"}
+        onRefresh={onRefresh}
+      />
+
+      <View style={styles.actionRow}>
+        <View>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Renter management</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
+            {currentActiveRenters.length} active renter{currentActiveRenters.length === 1 ? "" : "s"}
+          </Text>
+        </View>
+        <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenRenterModal}>
+          <Ionicons name="person-add-outline" size={19} color="#FFFFFF" />
+          <Text style={styles.smallPrimaryText}>Add Renter</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.renterSearchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search-outline" size={20} color={colors.secondary} />
+        <TextInput
+          style={[styles.renterSearchInput, { color: colors.text }]}
+          value={renterSearch}
+          onChangeText={setRenterSearch}
+          placeholder="Search name, email, phone, guardian or room"
+          placeholderTextColor={colors.secondary}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {renterSearch.length > 0 ? (
+          <TouchableOpacity onPress={() => setRenterSearch("")}>
+            <Ionicons name="close-circle" size={20} color={colors.secondary} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </>
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-        <Header
-          title="Renters"
-          subtitle={selectedHostel?.name || "Select a hostel"}
-          onRefresh={onRefresh}
-        />
-
-        <View style={styles.actionRow}>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Renter management</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.secondary }]}>
-              {currentActiveRenters.length} active renter{currentActiveRenters.length === 1 ? "" : "s"}
-            </Text>
-          </View>
-          <TouchableOpacity style={[styles.smallPrimaryButton, { backgroundColor: colors.primary }]} onPress={onOpenRenterModal}>
-            <Ionicons name="person-add-outline" size={19} color="#FFFFFF" />
-            <Text style={styles.smallPrimaryText}>Add Renter</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.renterSearchBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Ionicons name="search-outline" size={20} color={colors.secondary} />
-          <TextInput
-            style={[styles.renterSearchInput, { color: colors.text }]}
-            value={renterSearch}
-            onChangeText={setRenterSearch}
-            placeholder="Search name, email, phone, guardian or room"
-            placeholderTextColor={colors.secondary}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {renterSearch.length > 0 ? (
-            <TouchableOpacity onPress={() => setRenterSearch("")}>
-              <Ionicons name="close-circle" size={20} color={colors.secondary} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        {renters.length === 0 ? (
-          <EmptyState
-            icon="people-outline"
-            title="No renters found"
-            description="Add a renter account and assign a room."
-          />
-        ) : filteredRenters.length === 0 ? (
-          <EmptyState
-            icon="search-outline"
-            title="No matching renters"
-            description="Try a different name, phone number, email, guardian number or room number."
-          />
-        ) : (
-          filteredRenters.map((renter) => {
-            const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
-            const roomNumber =
-              renter.room?.roomNumber ||
-              rooms.find((room) => room.id === renter.roomId)?.roomNumber ||
-              "-";
-
-            return (
-              <Pressable
-                key={renter.id}
-                style={[styles.renterCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => onOpenRenterDetails(renter)}
-              >
-                <View style={[styles.avatar, { backgroundColor: colors.primaryLight }]}>
-                  <Text style={[styles.avatarText, { color: colors.primary }]}>
-                    {getName(renter).charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemTitle, { color: colors.text }]}>{getName(renter)}</Text>
-                  {getEmail(renter) ? (
-                    <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>{getEmail(renter)}</Text>
-                  ) : null}
-                  {renter.phone || renter.user?.phone ? (
-                    <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>
-                      Phone: {renter.phone || renter.user?.phone}
-                    </Text>
-                  ) : null}
-                  {renter.guardianPhone ? (
-                    <Text style={[styles.itemSubtitle, { color: colors.secondary }]}>Guardian: {renter.guardianPhone}</Text>
-                  ) : null}
-                  <Text style={[styles.roomTag, { backgroundColor: colors.surfaceSecondary, color: colors.primary, borderColor: colors.border, borderWidth: 1 }]}>Room {roomNumber}</Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: active ? colors.successLight : colors.dangerLight },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      { color: active ? colors.success : colors.danger },
-                    ]}
-                  >
-                    {active ? "ACTIVE" : String(renter.status || "INACTIVE")}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })
-        )}
-      </ScrollView>
+      <FlatList
+        data={filteredRenters}
+        renderItem={renderRenterCard}
+        keyExtractor={renterKeyExtractor}
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={
+          renters.length === 0 ? (
+            <EmptyState
+              icon="people-outline"
+              title="No renters found"
+              description="Add a renter account and assign a room."
+            />
+          ) : (
+            <EmptyState
+              icon="search-outline"
+              title="No matching renters"
+              description="Try a different name, phone number, email, guardian number or room number."
+            />
+          )
+        }
+        contentContainerStyle={styles.screenContent}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+      />
 
       {/* RENTER DETAILS MODAL */}
       <Modal

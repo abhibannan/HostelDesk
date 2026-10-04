@@ -1,7 +1,9 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, StyleSheet, Animated, TouchableWithoutFeedback } from "react-native";
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from "react-native-svg";
 import { useTheme } from "../contexts/ThemeContext";
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 interface DonutChartProps {
   data: { label: string; value: number; color: string }[];
@@ -17,12 +19,33 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
   const circumference = 2 * Math.PI * radius;
   const total = data.reduce((sum, item) => sum + Math.max(0, item.value), 0);
 
+  const animation = useRef(new Animated.Value(0)).current;
+
+  const playAnimation = () => {
+    animation.setValue(0);
+    Animated.timing(animation, {
+      toValue: 1,
+      duration: 1200,
+      useNativeDriver: false, // SVG props often require false
+    }).start();
+  };
+
+  useEffect(() => {
+    playAnimation();
+  }, [data]);
+
   let offset = 0;
   const circles = data.map((item, index) => {
     const fraction = total > 0 ? Math.max(0, item.value) / total : 0;
     const dash = fraction * circumference;
+    
+    const strokeDasharray = animation.interpolate({
+      inputRange: [0, 1],
+      outputRange: [`0 ${circumference}`, `${dash} ${circumference - dash}`]
+    });
+
     const element = (
-      <Circle
+      <AnimatedCircle
         key={`${item.label}-${index}`}
         cx={size / 2}
         cy={size / 2}
@@ -30,10 +53,11 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
         fill="none"
         stroke={item.color}
         strokeWidth={strokeWidth}
-        strokeDasharray={`${dash} ${circumference - dash}`}
+        strokeDasharray={strokeDasharray as any}
         strokeDashoffset={-offset}
         rotation="-90"
         origin={`${size / 2}, ${size / 2}`}
+        strokeLinecap="round"
       />
     );
     offset += dash;
@@ -42,25 +66,27 @@ export function DonutChart({ data, centerText, centerSub }: DonutChartProps) {
 
   return (
     <View style={styles.chartBlock}>
-      <View style={{ alignItems: "center" }}>
-        <Svg width={size} height={size}>
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={colors.surfaceSecondary}
-            strokeWidth={strokeWidth}
-          />
-          {circles}
-          <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="18" fontWeight="800" fill={colors.text}>
-            {centerText}
-          </SvgText>
-          <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="10" fill={colors.secondary}>
-            {centerSub}
-          </SvgText>
-        </Svg>
-      </View>
+      <TouchableWithoutFeedback onPress={playAnimation}>
+        <View style={{ alignItems: "center" }}>
+          <Svg width={size} height={size}>
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={colors.surfaceSecondary}
+              strokeWidth={strokeWidth}
+            />
+            {circles}
+            <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="18" fontWeight="800" fill={colors.text}>
+              {centerText}
+            </SvgText>
+            <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="10" fill={colors.secondary}>
+              {centerSub}
+            </SvgText>
+          </Svg>
+        </View>
+      </TouchableWithoutFeedback>
       <View style={styles.legendList}>
         {data.map((item) => (
           <View key={item.label} style={styles.legendRow}>

@@ -20,6 +20,7 @@ import { Hostel, MaintenanceTask, Renter, Repair, RepairPerson, Room } from "../
 import { Header, EmptyState } from "../components/common";
 import { getName } from "../utils/formatters";
 import { useTheme } from "../contexts/ThemeContext";
+import { setSuspendBiometrics } from "../hooks/useBiometrics";
 
 interface RepairsScreenProps {
   repairs: Repair[];
@@ -1015,6 +1016,7 @@ export function RepairsScreen({
                       onPress={async () => {
                         const perm = await ImagePicker.requestCameraPermissionsAsync();
                         if (perm.granted) {
+                          setSuspendBiometrics(true);
                           const res = await ImagePicker.launchCameraAsync({ quality: 0.6 });
                           if (!res.canceled && res.assets?.[0]) {
                             setResolvedPhotoUri?.(res.assets[0].uri);
@@ -1042,6 +1044,7 @@ export function RepairsScreen({
                       onPress={async () => {
                         const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                         if (perm.granted) {
+                          setSuspendBiometrics(true);
                           const res = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, mediaTypes: ["images"] });
                           if (!res.canceled && res.assets?.[0]) {
                             setResolvedPhotoUri?.(res.assets[0].uri);

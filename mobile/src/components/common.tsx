@@ -1,7 +1,43 @@
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { COLORS } from "../constants/theme";
+import { haptic } from "../utils/haptics";
+
+export function Skeleton({ width, height, borderRadius = 8, style }: any) {
+  const { colors } = useTheme();
+  const anim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+
+  return (
+    <Animated.View style={[{ width, height, borderRadius, backgroundColor: colors.border, opacity: anim }, style]} />
+  );
+}
+
+export function AnimatedPressable({ children, onPress, style }: any) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  return (
+    <Pressable
+      onPressIn={() => Animated.spring(scale, { toValue: 0.95, useNativeDriver: true }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start()}
+      onPress={onPress}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 interface HeaderProps {
   title: string;
@@ -103,13 +139,28 @@ interface BottomTabProps {
   label: string;
   active: boolean;
   onPress: () => void;
+  badge?: number | string;
 }
 
-export function BottomTab({ icon, activeIcon, label, active, onPress }: BottomTabProps) {
+export function BottomTab({ icon, activeIcon, label, active, onPress, badge }: BottomTabProps) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity style={styles.bottomTab} onPress={onPress} activeOpacity={0.75}>
-      <Ionicons name={active ? activeIcon : icon} size={23} color={active ? colors.primary : colors.secondary} />
+    <TouchableOpacity
+      style={styles.bottomTab}
+      onPress={() => {
+        haptic.selection();
+        onPress();
+      }}
+      activeOpacity={0.75}
+    >
+      <View style={{ position: "relative" }}>
+        <Ionicons name={active ? activeIcon : icon} size={23} color={active ? colors.primary : colors.secondary} />
+        {Boolean(badge) && (
+          <View style={[styles.tabBadge, { backgroundColor: COLORS.danger }]}>
+            <Text style={styles.tabBadgeText}>{badge}</Text>
+          </View>
+        )}
+      </View>
       <Text
         style={[
           styles.bottomLabel,
@@ -168,4 +219,20 @@ const styles = StyleSheet.create({
   bottomTab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 8 },
   bottomLabel: { fontSize: 11, marginTop: 4, fontWeight: "600" },
   bottomLabelActive: { fontWeight: "800" },
+  tabBadge: {
+    position: "absolute",
+    right: -10,
+    top: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "900",
+  },
 });

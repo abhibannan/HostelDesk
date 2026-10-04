@@ -86,6 +86,7 @@ export type Payment = {
   paymentMethod?: string;
   reference?: string;
   notes?: string;
+  proofUploadId?: string;
   proofUrl?: string;
   status?: string;
   reviewNote?: string;

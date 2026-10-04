@@ -211,6 +211,17 @@ export function useAuth(callbacks?: AuthCallbacks): AuthActions {
       const user = (me.user || me) as User;
       const role = user?.role;
 
+      if (expectedRole) {
+        if (expectedRole === "RENTER" && role !== "RENTER") {
+          await signOut(auth).catch(() => {});
+          throw new Error("Invalid login portal. Please switch to the 'Hostel Admin' tab to log in as an administrator.");
+        }
+        if (expectedRole === "ADMIN" && role === "RENTER") {
+          await signOut(auth).catch(() => {});
+          throw new Error("Invalid login portal. Please switch to the 'Resident' tab to log in as a resident.");
+        }
+      }
+
       // 2. Fetch /hostels safely (defaults to [] if empty or request fails)
       let hostelData: Hostel[] = [];
       try {

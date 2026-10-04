@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_URL, parseJsonResponse as jsonResponse } from "../services/api";
 import {
   Dashboard,
@@ -12,6 +13,49 @@ import {
   Room,
 } from "../types";
 import { dashboardFrom, listFrom } from "../utils/formatters";
+
+// ── SWR-style AsyncStorage cache helpers ────────────────────────────────────
+const CACHE_KEY = "@staynexa_hostel_cache";
+
+interface CachedData {
+  hostels?: Hostel[];
+  selectedHostelId?: string;
+  rooms?: Room[];
+  renters?: Renter[];
+  fees?: Fee[];
+  payments?: Payment[];
+  repairs?: Repair[];
+  dashboard?: Dashboard;
+  ts?: number; // timestamp
+}
+
+async function readCache(): Promise<CachedData | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCache(data: CachedData): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ ...data, ts: Date.now() }),
+    );
+  } catch {
+    // Silent fail – cache is best-effort
+  }
+}
+
+async function clearCache(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(CACHE_KEY);
+  } catch {
+    // Silent fail
+  }
+}
 
 export interface HostelDataState {
   dashboard: Dashboard;
@@ -66,6 +110,25 @@ export function useHostelData(): HostelDataState & HostelDataActions {
   const [dataLoading, setDataLoading] = useState(false);
 
   const refreshBusy = useRef(false);
+  const cacheHydrated = useRef(false);
+
+  // ── SWR: Hydrate from AsyncStorage cache on first mount ──────────────────
+  useEffect(() => {
+    if (cacheHydrated.current) return;
+    cacheHydrated.current = true;
+    (async () => {
+      const cached = await readCache();
+      if (!cached) return;
+      if (cached.hostels?.length) setHostels(cached.hostels);
+      if (cached.selectedHostelId) setSelectedHostelIdState(cached.selectedHostelId);
+      if (cached.rooms?.length) setRooms(cached.rooms);
+      if (cached.renters?.length) setRenters(cached.renters);
+      if (cached.fees?.length) setFees(cached.fees);
+      if (cached.payments?.length) setPayments(cached.payments);
+      if (cached.repairs?.length) setRepairs(cached.repairs);
+      if (cached.dashboard) setDashboard(cached.dashboard);
+    })();
+  }, []);
 
   const setSelectedHostelId = useCallback((id: string) => {
     setSelectedHostelIdState((prev) => {
@@ -188,6 +251,17 @@ export function useHostelData(): HostelDataState & HostelDataActions {
         );
         setNotifications(broadcastNotifs);
         await refreshDashboardOnly(hostelId);
+
+        // ── SWR: Persist fresh data to AsyncStorage cache ─────────────────
+        writeCache({
+          hostels,
+          selectedHostelId: hostelId,
+          rooms: fetchedRooms,
+          renters: fetchedRenters,
+          fees: fetchedFees,
+          payments: fetchedPayments,
+          repairs: fetchedRepairs,
+        });
       } finally {
         refreshBusy.current = false;
       }
@@ -285,6 +359,7 @@ export function useHostelData(): HostelDataState & HostelDataActions {
     setPayments([]);
     setRepairs([]);
     setNotifications([]);
+    clearCache(); // Clear SWR cache on logout/reset
   }, []);
 
   return {

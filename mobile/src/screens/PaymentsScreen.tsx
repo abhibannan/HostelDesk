@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Modal,
   Image,
@@ -20,6 +21,9 @@ import { getName, getEmail, money, statusLabel, currentMonth } from "../utils/fo
 import { Header, EmptyState } from "../components/common";
 import { useTheme } from "../contexts/ThemeContext";
 import { ExpensesView } from "../components/ExpensesView";
+import { API_URL } from "../services/api";
+import * as Clipboard from "expo-clipboard";
+import { haptic } from "../utils/haptics";
 
 interface PaymentsScreenProps {
   fees: Fee[];
@@ -141,6 +145,8 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 
   // Proof image preview modal
   const [proofPreviewUrl, setProofPreviewUrl] = useState("");
+  const [proofPreviewReference, setProofPreviewReference] = useState<string | undefined>(undefined);
+  const [copiedFeedback, setCopiedFeedback] = useState(false);
 
   // Custom reminder modal state
   const [showCustomRemindModal, setShowCustomRemindModal] = useState(false);
@@ -202,7 +208,7 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false} removeClippedSubviews={true}>
         {/* Navigation & Header */}
         <View style={styles.topNavRow}>
           {onBack && (
@@ -602,6 +608,98 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                       <Text style={[styles.descriptionText, { color: colors.secondary }]}>{fee.description}</Text>
                     ) : null}
 
+                    {/* Attached Payment Proof Receipt (if submitted) */}
+                    {(() => {
+                      const feePayment = payments.find(
+                        (p) => p.feeId === fee.id && (p.proofUrl || p.proofUploadId),
+                      );
+                      const currentProofUrl =
+                        feePayment?.proofUrl ||
+                        (feePayment?.proofUploadId
+                          ? `${API_URL}/uploads/${feePayment.proofUploadId}/file`
+                          : null);
+
+                      if (!currentProofUrl) return null;
+
+                      const isApproved = String(feePayment?.status).toUpperCase() === "APPROVED";
+
+                      return (
+                        <TouchableOpacity
+                          style={[
+                            styles.feeProofBanner,
+                            {
+                              backgroundColor: isDark ? colors.surfaceSecondary : "#f0fdf4",
+                              borderColor: isDark ? colors.border : "#bbf7d0",
+                            },
+                          ]}
+                          onPress={() => {
+                            setProofPreviewUrl(currentProofUrl);
+                            setProofPreviewReference(feePayment?.reference);
+                            haptic.light();
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Image
+                            source={{ uri: currentProofUrl }}
+                            style={styles.feeProofThumb}
+                            resizeMode="cover"
+                          />
+                          <View style={{ flex: 1, marginLeft: 10, justifyContent: "center" }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                              <Ionicons
+                                name="image-outline"
+                                size={14}
+                                color={isApproved ? COLORS.success : COLORS.warning}
+                              />
+                              <Text
+                                style={[
+                                  styles.feeProofTitle,
+                                  { color: colors.text },
+                                ]}
+                              >
+                                Payment Proof Screenshot
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.feeProofSubtitle,
+                                { color: colors.secondary },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {feePayment?.reference
+                                ? `Ref: ${feePayment.reference} · `
+                                : ""}
+                              Tap to inspect receipt photo
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.feeProofBadge,
+                              {
+                                backgroundColor: isApproved
+                                  ? COLORS.successLight
+                                  : COLORS.warningLight,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.feeProofBadgeText,
+                                {
+                                  color: isApproved
+                                    ? COLORS.success
+                                    : COLORS.warning,
+                                },
+                              ]}
+                            >
+                              {isApproved ? "Verified" : "Pending Review"}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })()}
+
                     <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
                       <Text style={[styles.footerNote, { color: colors.secondary }]}>
                         {(fee as any).isArchivedRenter ? "Historical Record" : isPaid ? "Settled in full" : `₹${remaining} balance due`}
@@ -744,28 +842,40 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
                     </View>
 
                     {/* Screenshot Preview */}
-                    {payment.proofUrl ? (
-                      <TouchableOpacity
-                        style={styles.proofImageContainer}
-                        onPress={() => setProofPreviewUrl(payment.proofUrl || "")}
-                        activeOpacity={0.85}
-                      >
-                        <Image
-                          source={{ uri: payment.proofUrl }}
-                          style={styles.proofImage}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.proofOverlay}>
-                          <Ionicons name="expand-outline" size={18} color="#FFFFFF" />
-                          <Text style={styles.proofOverlayText}>View Proof Screenshot</Text>
+                    {(() => {
+                      const proofImageSource =
+                        payment.proofUrl ||
+                        (payment.proofUploadId
+                          ? `${API_URL}/uploads/${payment.proofUploadId}/file`
+                          : null);
+
+                      return proofImageSource ? (
+                        <TouchableOpacity
+                          style={styles.proofImageContainer}
+                          onPress={() => {
+                            setProofPreviewUrl(proofImageSource);
+                            setProofPreviewReference(payment.reference);
+                            haptic.light();
+                          }}
+                          activeOpacity={0.85}
+                        >
+                          <Image
+                            source={{ uri: proofImageSource }}
+                            style={styles.proofImage}
+                            resizeMode="cover"
+                          />
+                          <View style={styles.proofOverlay}>
+                            <Ionicons name="expand-outline" size={18} color="#FFFFFF" />
+                            <Text style={styles.proofOverlayText}>View Proof Screenshot</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={[styles.noProofBox, { backgroundColor: colors.surfaceSecondary }]}>
+                          <Ionicons name="image-outline" size={18} color={colors.secondary} />
+                          <Text style={[styles.noProofText, { color: colors.secondary }]}>No receipt photo attached.</Text>
                         </View>
-                      </TouchableOpacity>
-                    ) : (
-                      <View style={[styles.noProofBox, { backgroundColor: colors.surfaceSecondary }]}>
-                        <Ionicons name="image-outline" size={18} color={colors.secondary} />
-                        <Text style={[styles.noProofText, { color: colors.secondary }]}>No receipt photo attached.</Text>
-                      </View>
-                    )}
+                      );
+                    })()}
 
                     {payment.reviewNote ? (
                       <View style={[styles.reviewNoteBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
@@ -1161,14 +1271,77 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
         visible={Boolean(proofPreviewUrl)}
         transparent
         animationType="fade"
-        onRequestClose={() => setProofPreviewUrl("")}
+        onRequestClose={() => {
+          setProofPreviewUrl("");
+          setProofPreviewReference(undefined);
+        }}
       >
         <View style={styles.proofBackdrop}>
-          <TouchableOpacity style={styles.proofCloseBtn} onPress={() => setProofPreviewUrl("")}>
-            <Ionicons name="close" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
-          {proofPreviewUrl ? (
-            <Image source={{ uri: proofPreviewUrl }} style={styles.fullProofImage} resizeMode="contain" />
+          {/* Top Bar */}
+          <View style={styles.proofHeaderBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.proofHeaderTitle}>Payment Receipt Inspector</Text>
+              <Text style={styles.proofHeaderSubtitle}>Pinch with 2 fingers to zoom & pan details</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.proofCloseBtn}
+              onPress={() => {
+                haptic.light();
+                setProofPreviewUrl("");
+                setProofPreviewReference(undefined);
+              }}
+            >
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Pinch-to-zoom container */}
+          <ScrollView
+            style={{ flex: 1, width: "100%" }}
+            contentContainerStyle={styles.zoomScrollContent}
+            maximumZoomScale={5}
+            minimumZoomScale={1}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            centerContent
+          >
+            {proofPreviewUrl ? (
+              <Image
+                source={{ uri: proofPreviewUrl }}
+                style={styles.fullProofImage}
+                resizeMode="contain"
+              />
+            ) : null}
+          </ScrollView>
+
+          {/* Bottom Bar with 1-Tap Copy UTR */}
+          {proofPreviewReference ? (
+            <View style={styles.proofBottomBar}>
+              <TouchableOpacity
+                style={[
+                  styles.copyRefBtn,
+                  copiedFeedback && { backgroundColor: COLORS.success },
+                ]}
+                onPress={async () => {
+                  await Clipboard.setStringAsync(proofPreviewReference);
+                  haptic.success();
+                  setCopiedFeedback(true);
+                  setTimeout(() => setCopiedFeedback(false), 2500);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={copiedFeedback ? "checkmark-circle" : "copy-outline"}
+                  size={16}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.copyRefBtnText}>
+                  {copiedFeedback
+                    ? "Copied Reference to Clipboard!"
+                    : `Copy UTR: ${proofPreviewReference}`}
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
         </View>
       </Modal>
@@ -1547,6 +1720,40 @@ const styles = StyleSheet.create({
   cardSubtitle: { fontSize: 12, color: COLORS.secondary, marginTop: 2 },
   statusBadge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
   statusBadgeText: { fontSize: 10, fontWeight: "800" },
+
+  feeProofBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  feeProofThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: COLORS.muted,
+  },
+  feeProofTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  feeProofSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  feeProofBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: "center",
+  },
+  feeProofBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
 
   metricsGrid: {
     flexDirection: "row",
@@ -2012,5 +2219,46 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 16,
     elevation: 8,
+  },
+  proofHeaderBar: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  proofHeaderTitle: {
+    fontSize: 17,
+    fontWeight: "800" as const,
+    color: "#FFFFFF",
+  },
+  proofHeaderSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    marginTop: 3,
+  },
+  zoomScrollContent: {
+    flexGrow: 1,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  proofBottomBar: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  copyRefBtn: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  copyRefBtnText: {
+    fontSize: 13,
+    fontWeight: "700" as const,
   },
 });
