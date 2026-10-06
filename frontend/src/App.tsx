@@ -21,7 +21,7 @@ import RepairPortal from "./components/RepairPortal";
 import JoinPage from "./components/JoinPage";
 import "./App.css";
 
-const API_URL = "http://localhost:3000/api/v1";
+const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-api.onrender.com/api/v1";
 const CHART_COLORS = [
   "#4f46e5",
   "#10b981",
@@ -122,8 +122,8 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // If the user accessed the /join path via QR code
-  if (window.location.pathname === "/join") {
+  // If the user accessed the /join path via QR code (supports GH pages subpaths)
+  if (window.location.pathname.endsWith("/join")) {
     return <JoinPage />;
   }
 

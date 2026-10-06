@@ -36,7 +36,7 @@ export function RenterOnboardingQRModal({
 
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const roomParam = selectedRoom ? `&room=${encodeURIComponent(selectedRoom.roomNumber)}` : "";
-  const inviteUrl = `https://staynexa.com/join?hostelId=${encodeURIComponent(hostelId)}${roomParam}`;
+  const inviteUrl = `https://abhibannan.github.io/StayNexa/join?hostelId=${encodeURIComponent(hostelId)}${roomParam}`;
 
   const handleCopyLink = async () => {
     await Clipboard.setStringAsync(inviteUrl);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import "./JoinPage.css";
 
-const API_URL = "http://localhost:3000/api/v1";
+const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-api.onrender.com/api/v1";
 
 export default function JoinPage() {
   const [hostelId, setHostelId] = useState("");
