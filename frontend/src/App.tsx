@@ -21,7 +21,7 @@ import RepairPortal from "./components/RepairPortal";
 import JoinPage from "./components/JoinPage";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-api.onrender.com/api/v1";
+const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-1.onrender.com/api/v1";
 const CHART_COLORS = [
   "#4f46e5",
   "#10b981",
