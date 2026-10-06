@@ -6,8 +6,8 @@ import { registerBackgroundNotificationTask } from "../services/backgroundNotifi
 // Check if running in Expo Go client (which can't use native FCM device tokens)
 function checkIsExpoGo(): boolean {
   try {
-    // In a standalone build, global.__expo is not set to "storeClient"
-    const appOwnership = (global as any).expo?.modules?.ExpoConstants?.appOwnership;
+    // In a standalone build, globalThis.__expo is not set to "storeClient"
+    const appOwnership = (globalThis as any).expo?.modules?.ExpoConstants?.appOwnership;
     if (appOwnership === "expo") return true;
   } catch {
     // fallback — assume standalone

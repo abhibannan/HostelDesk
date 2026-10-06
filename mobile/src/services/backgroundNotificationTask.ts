@@ -27,7 +27,7 @@ export const BACKGROUND_NOTIFICATION_TASK = "STAYNEXA_BACKGROUND_NOTIFICATION";
  */
 TaskManager.defineTask(
   BACKGROUND_NOTIFICATION_TASK,
-  ({ data, error }: TaskManager.TaskManagerTaskBody<{ notification: Notifications.Notification }>) => {
+  async ({ data, error }: TaskManager.TaskManagerTaskBody<{ notification: Notifications.Notification }>) => {
     if (error) {
       console.warn("[BackgroundNotif] Task error:", error);
       return;
