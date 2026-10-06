@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Image,
   Modal,
@@ -34,6 +34,13 @@ export function RenterOnboardingQRModal({
   const { colors, isDark } = useTheme();
   const toast = useToast();
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
+  const [showRoomDropdown, setShowRoomDropdown] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (rooms.length > 0 && !selectedRoomId) {
+      setSelectedRoomId(rooms[0].id);
+    }
+  }, [rooms, selectedRoomId]);
 
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const roomParam = selectedRoom ? `&room=${encodeURIComponent(selectedRoom.roomNumber)}` : "";
@@ -94,45 +101,39 @@ export function RenterOnboardingQRModal({
           {rooms.length > 0 && (
             <View style={styles.roomSelectRow}>
               <Text style={[styles.roomLabel, { color: colors.secondary }]}>Pre-assign Room (optional):</Text>
-              <ScrollView 
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.roomChips}
-                style={{ flexGrow: 0 }}
+              
+              <TouchableOpacity
+                style={[styles.dropdownHeader, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                onPress={() => setShowRoomDropdown(!showRoomDropdown)}
+                activeOpacity={0.7}
               >
-                <TouchableOpacity
-                  style={[
-                    styles.roomChip,
-                    !selectedRoomId && { backgroundColor: colors.primary },
-                    { borderColor: colors.border },
-                  ]}
-                  onPress={() => setSelectedRoomId("")}
-                >
-                  <Text style={[styles.roomChipText, !selectedRoomId ? { color: "#FFF" } : { color: colors.text }]}>
-                    Any
-                  </Text>
-                </TouchableOpacity>
-                {rooms.map((r) => (
-                  <TouchableOpacity
-                    key={r.id}
-                    style={[
-                      styles.roomChip,
-                      selectedRoomId === r.id && { backgroundColor: colors.primary },
-                      { borderColor: colors.border },
-                    ]}
-                    onPress={() => setSelectedRoomId(r.id)}
-                  >
-                    <Text
-                      style={[
-                        styles.roomChipText,
-                        selectedRoomId === r.id ? { color: "#FFF" } : { color: colors.text },
-                      ]}
-                    >
-                      {r.roomNumber}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
+                  {selectedRoomId ? rooms.find((r) => r.id === selectedRoomId)?.roomNumber : "Select a Room"}
+                </Text>
+                <Ionicons name={showRoomDropdown ? "chevron-up" : "chevron-down"} size={18} color={colors.secondary} />
+              </TouchableOpacity>
+
+              {showRoomDropdown && (
+                <View style={[styles.dropdownList, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                  <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled showsVerticalScrollIndicator={true}>
+                    {rooms.map((r) => (
+                      <TouchableOpacity
+                        key={r.id}
+                        style={styles.dropdownOption}
+                        onPress={() => {
+                          setSelectedRoomId(r.id);
+                          setShowRoomDropdown(false);
+                        }}
+                      >
+                        <Text style={[styles.dropdownOptionText, { color: selectedRoomId === r.id ? colors.primary : colors.text }]}>
+                          {r.roomNumber}
+                        </Text>
+                        {selectedRoomId === r.id && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
           )}
 
@@ -232,20 +233,33 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textTransform: "uppercase",
   },
-  roomChips: {
+  dropdownHeader: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  roomChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
+    borderRadius: 12,
+    marginTop: 8,
   },
-  roomChipText: {
-    fontSize: 12,
-    fontWeight: "700",
+  dropdownList: {
+    borderWidth: 1,
+    borderRadius: 12,
+    marginTop: 4,
+    overflow: "hidden",
+  },
+  dropdownOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(150,150,150,0.1)",
+  },
+  dropdownOptionText: {
+    fontSize: 14,
   },
   buttonRow: {
     flexDirection: "row",
