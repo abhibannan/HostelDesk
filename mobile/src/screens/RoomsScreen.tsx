@@ -380,7 +380,7 @@ export function RoomsScreen({
             description="Add your first room to start managing occupancy."
           />
         ) : (
-          <View style={styles.roomGrid}>
+          <View style={styles.roomList}>
             {currentHostelRooms.map((room) => {
               const count = occupantCountMap[room.id] ?? 0;
               const max = room.maxOccupants ?? 0;
@@ -397,58 +397,62 @@ export function RoomsScreen({
                   }}
                   activeOpacity={0.78}
                 >
-                  {/* Top row: Icon container + Delete button */}
-                  <View style={styles.roomCardHeader}>
+                  {/* Accent strip */}
+                  <View style={[styles.roomAccentStrip, { backgroundColor: statusInfo.fg }]} />
+
+                  <View style={styles.roomCardContent}>
+                    {/* Left: Icon */}
                     <View style={[styles.roomIconBox, { backgroundColor: statusInfo.bg }]}>
-                      <Ionicons name="bed-outline" size={18} color={statusInfo.fg} />
+                      <Ionicons name="bed-outline" size={22} color={statusInfo.fg} />
                     </View>
-                    <TouchableOpacity
-                      style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        haptic.heavy();
-                        onDeleteRoom(room);
-                      }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="trash-outline" size={14} color={colors.danger} />
-                    </TouchableOpacity>
-                  </View>
 
-                  {/* Body: Room Number & Floor */}
-                  <View style={styles.roomCardBody}>
-                    <Text style={[styles.roomNumber, { color: colors.text }]}>Room {room.roomNumber}</Text>
-                    <Text style={[styles.roomFloor, { color: colors.secondary }]}>
-                      {room.floor !== undefined && room.floor !== null
-                        ? `Floor ${room.floor}`
-                        : "Ground Floor"}
-                    </Text>
-
-                    {/* Occupancy Progress Bar */}
-                    {max > 0 && (
-                      <View style={[styles.occupancyBarBg, { backgroundColor: colors.surfaceSecondary }]}>
-                        <View
-                          style={[
-                            styles.occupancyBarFill,
-                            {
-                              width: `${occupancyFraction * 100}%`,
-                              backgroundColor: statusInfo.fg,
-                            },
-                          ]}
-                        />
+                    {/* Center: Info */}
+                    <View style={styles.roomCardCenter}>
+                      <View style={styles.roomCardTitleRow}>
+                        <Text style={[styles.roomNumber, { color: colors.text }]}>Room {room.roomNumber}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: statusInfo.fg }]}>
+                            {statusInfo.label}
+                          </Text>
+                        </View>
                       </View>
-                    )}
-
-                    {/* Footer: Count & Status Badge */}
-                    <View style={styles.roomCardFooter}>
-                      <Text style={[styles.occupantCount, { color: colors.secondary }]}>
-                        {count}{max > 0 ? `/${max}` : ""} {count === 1 ? "bed" : "beds"}
+                      <Text style={[styles.roomFloor, { color: colors.secondary }]}>
+                        {room.floor !== undefined && room.floor !== null
+                          ? `Floor ${room.floor}`
+                          : "Ground Floor"}
+                        {max > 0 ? ` • ${count}/${max} beds` : ""}
                       </Text>
-                      <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                        <Text style={[styles.statusBadgeText, { color: statusInfo.fg }]}>
-                          {statusInfo.label}
-                        </Text>
-                      </View>
+
+                      {/* Occupancy Bar */}
+                      {max > 0 && (
+                        <View style={[styles.occupancyBarBg, { backgroundColor: colors.surfaceSecondary }]}>
+                          <View
+                            style={[
+                              styles.occupancyBarFill,
+                              {
+                                width: `${occupancyFraction * 100}%`,
+                                backgroundColor: statusInfo.fg,
+                              },
+                            ]}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Right: Actions */}
+                    <View style={styles.roomCardActions}>
+                      <TouchableOpacity
+                        style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          haptic.heavy();
+                          onDeleteRoom(room);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="trash-outline" size={14} color={colors.danger} />
+                      </TouchableOpacity>
+                      <Ionicons name="chevron-forward" size={18} color={colors.secondary} style={{ marginTop: 6 }} />
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -1007,42 +1011,50 @@ const styles = StyleSheet.create({
   },
   smallPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
 
-  // Room grid
-  roomGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  // Room list
+  roomList: {
     gap: 12,
   },
   roomCard: {
-    width: "47%",
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 16,
-    padding: 12,
     backgroundColor: COLORS.card,
+    overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  roomCardHeader: {
+  roomAccentStrip: {
+    height: 4,
+    width: "100%",
+  },
+  roomCardContent: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
+    padding: 14,
+    gap: 12,
   },
   roomIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  roomCardBody: {
-    gap: 3,
+  roomCardCenter: {
+    flex: 1,
+  },
+  roomCardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
   },
   roomNumber: { fontSize: 15, fontWeight: "800", color: COLORS.text },
-  roomFloor: { fontSize: 11, color: COLORS.secondary },
+  roomFloor: { fontSize: 12, color: COLORS.secondary, marginTop: 1 },
   occupancyBarBg: {
     height: 5,
     borderRadius: 3,
@@ -1054,13 +1066,10 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
   },
-  roomCardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  roomCardActions: {
     alignItems: "center",
-    marginTop: 8,
+    gap: 4,
   },
-  occupantCount: { fontSize: 11, fontWeight: "600" },
   statusBadge: {
     borderRadius: 6,
     paddingHorizontal: 7,
@@ -1068,9 +1077,9 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: { fontSize: 9, fontWeight: "800" },
   roomDeleteBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
