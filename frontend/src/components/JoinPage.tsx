@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import "./JoinPage.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-1.onrender.com/api/v1";
@@ -74,25 +75,58 @@ export default function JoinPage() {
     }
   };
 
+  const pageVariants = {
+    initial: { opacity: 0, x: 20 },
+    in: { opacity: 1, x: 0 },
+    out: { opacity: 0, x: -20 }
+  };
+
   if (success) {
     return (
       <div className="join-container">
         <div className="blob blob-1"></div>
         <div className="blob blob-2"></div>
-        <div className="glass-card success-card">
-          <div className="success-icon-wrapper">
+        <motion.div 
+          className="glass-card success-card"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <motion.div 
+            className="success-icon-wrapper"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
+          >
             <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
               <circle className="checkmark__circle" cx="26" cy="26" r="25" fill="none" />
               <path className="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
             </svg>
-          </div>
-          <h1>Request Sent Successfully!</h1>
-          <p>Your details have been submitted to the management.</p>
-          <div className="room-badge">
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            Request Sent Successfully!
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            Your details have been submitted to the management.
+          </motion.p>
+          <motion.div 
+            className="room-badge"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+          >
              <span>Hostel: {hostelId}</span>
              {room && <span> • Room {room}</span>}
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </div>
     );
   }
@@ -104,7 +138,12 @@ export default function JoinPage() {
       <div className="blob blob-2"></div>
       <div className="blob blob-3"></div>
 
-      <div className="glass-card">
+      <motion.div 
+        className="glass-card"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div className="card-header">
           <div className="logo-placeholder">
             <span className="logo-icon">S</span>
@@ -114,70 +153,111 @@ export default function JoinPage() {
           <p>Complete your profile to join {room ? `Room ${room}` : 'your new home'}.</p>
         </div>
 
-        {error && <div className="error-banner">{error}</div>}
+        <AnimatePresence>
+          {error && (
+            <motion.div 
+              className="error-banner"
+              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, height: "auto", marginBottom: 20 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+            >
+              {error}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="modern-form">
           {/* Step indicator */}
           <div className="progress-bar">
-            <div className={`progress-step ${step >= 1 ? 'active' : ''}`}></div>
-            <div className={`progress-step ${step >= 2 ? 'active' : ''}`}></div>
+            <motion.div 
+              className="progress-step active"
+              initial={{ width: "0%" }}
+              animate={{ width: "100%" }}
+            />
+            <motion.div 
+              className={`progress-step ${step >= 2 ? 'active' : ''}`}
+              initial={{ width: "0%" }}
+              animate={{ width: step >= 2 ? "100%" : "0%" }}
+            />
           </div>
 
-          <div className={`form-step ${step === 1 ? 'active' : 'hidden'}`}>
-            <h3>Personal Information</h3>
-            <div className="input-group">
-              <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder=" " />
-              <label>Full Name</label>
-            </div>
-            
-            <div className="input-group">
-              <input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder=" " />
-              <label>Email Address</label>
-            </div>
-            
-            <div className="input-group">
-              <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder=" " />
-              <label>Phone Number</label>
-            </div>
-            
-            <div className="input-group">
-              <input type="password" name="password" value={formData.password} onChange={handleChange} required placeholder=" " />
-              <label>Create Password</label>
-            </div>
-            
-            <button type="button" className="btn-glow" onClick={nextStep}>
-              Continue <span>&rarr;</span>
-            </button>
-          </div>
+          <div style={{ position: "relative", overflow: "hidden", minHeight: "350px" }}>
+            <AnimatePresence mode="wait">
+              {step === 1 && (
+                <motion.div 
+                  key="step1"
+                  initial="initial"
+                  animate="in"
+                  exit="out"
+                  variants={pageVariants}
+                  transition={{ duration: 0.3 }}
+                >
+                  <h3>Personal Information</h3>
+                  <div className="input-group">
+                    <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder=" " />
+                    <label>Full Name</label>
+                  </div>
+                  
+                  <div className="input-group">
+                    <input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder=" " />
+                    <label>Email Address</label>
+                  </div>
+                  
+                  <div className="input-group">
+                    <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder=" " />
+                    <label>Phone Number</label>
+                  </div>
+                  
+                  <div className="input-group">
+                    <input type="password" name="password" value={formData.password} onChange={handleChange} required placeholder=" " />
+                    <label>Create Password</label>
+                  </div>
+                  
+                  <button type="button" className="btn-glow" onClick={nextStep}>
+                    Continue <span>&rarr;</span>
+                  </button>
+                </motion.div>
+              )}
 
-          <div className={`form-step ${step === 2 ? 'active' : 'hidden'}`}>
-            <h3>Emergency & Address</h3>
-            <div className="input-group">
-              <input type="text" name="emergencyContactName" value={formData.emergencyContactName} onChange={handleChange} required placeholder=" " />
-              <label>Emergency Contact Name</label>
-            </div>
-            
-            <div className="input-group">
-              <input type="tel" name="emergencyContactPhone" value={formData.emergencyContactPhone} onChange={handleChange} required placeholder=" " />
-              <label>Emergency Contact Phone</label>
-            </div>
-            
-            <div className="input-group">
-              <textarea name="address" value={formData.address} onChange={handleChange} required placeholder=" " rows={3}></textarea>
-              <label>Permanent Address</label>
-            </div>
-            
-            <div className="button-group">
-              <button type="button" className="btn-secondary" onClick={prevStep}>
-                Back
-              </button>
-              <button type="submit" className="btn-glow submit-btn" disabled={loading}>
-                {loading ? <span className="loader"></span> : "Submit Application"}
-              </button>
-            </div>
+              {step === 2 && (
+                <motion.div 
+                  key="step2"
+                  initial="initial"
+                  animate="in"
+                  exit="out"
+                  variants={pageVariants}
+                  transition={{ duration: 0.3 }}
+                >
+                  <h3>Emergency & Address</h3>
+                  <div className="input-group">
+                    <input type="text" name="emergencyContactName" value={formData.emergencyContactName} onChange={handleChange} required placeholder=" " />
+                    <label>Emergency Contact Name</label>
+                  </div>
+                  
+                  <div className="input-group">
+                    <input type="tel" name="emergencyContactPhone" value={formData.emergencyContactPhone} onChange={handleChange} required placeholder=" " />
+                    <label>Emergency Contact Phone</label>
+                  </div>
+                  
+                  <div className="input-group">
+                    <textarea name="address" value={formData.address} onChange={handleChange} required placeholder=" " rows={3}></textarea>
+                    <label>Permanent Address</label>
+                  </div>
+                  
+                  <div className="button-group">
+                    <button type="button" className="btn-secondary" onClick={prevStep}>
+                      Back
+                    </button>
+                    <button type="submit" className="btn-glow submit-btn" disabled={loading}>
+                      {loading ? <span className="loader"></span> : "Submit Application"}
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 }

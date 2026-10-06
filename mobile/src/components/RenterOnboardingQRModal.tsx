@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   Image,
   Modal,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -93,7 +94,12 @@ export function RenterOnboardingQRModal({
           {rooms.length > 0 && (
             <View style={styles.roomSelectRow}>
               <Text style={[styles.roomLabel, { color: colors.secondary }]}>Pre-assign Room (optional):</Text>
-              <View style={styles.roomChips}>
+              <ScrollView 
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.roomChips}
+                style={{ flexGrow: 0 }}
+              >
                 <TouchableOpacity
                   style={[
                     styles.roomChip,
@@ -106,7 +112,7 @@ export function RenterOnboardingQRModal({
                     Any
                   </Text>
                 </TouchableOpacity>
-                {rooms.slice(0, 4).map((r) => (
+                {rooms.map((r) => (
                   <TouchableOpacity
                     key={r.id}
                     style={[
@@ -126,7 +132,7 @@ export function RenterOnboardingQRModal({
                     </Text>
                   </TouchableOpacity>
                 ))}
-              </View>
+              </ScrollView>
             </View>
           )}
 
