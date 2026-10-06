@@ -80,7 +80,7 @@ export function StatCard({ title, value, icon, tone, onPress }: StatCardProps) {
   const toneStyle = toneMap[tone];
 
   const content = (
-    <View style={[styles.statCard, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
+    <View style={[styles.statCardInner, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
       <View style={[styles.statIcon, { backgroundColor: toneStyle.bg }]}>
         <Ionicons name={icon} size={21} color={toneStyle.icon} />
       </View>
@@ -92,6 +92,7 @@ export function StatCard({ title, value, icon, tone, onPress }: StatCardProps) {
   if (onPress) {
     return (
       <TouchableOpacity
+        style={styles.statCardWrapper}
         activeOpacity={0.75}
         onPress={() => {
           haptic.cardPress();
@@ -103,7 +104,7 @@ export function StatCard({ title, value, icon, tone, onPress }: StatCardProps) {
     );
   }
 
-  return content;
+  return <View style={styles.statCardWrapper}>{content}</View>;
 }
 
 interface SectionTitleProps {
@@ -218,17 +219,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 12,
   },
-  statCard: {
+  statCardWrapper: {
     width: "48%",
+    marginBottom: 12,
+  },
+  statCardInner: {
     borderWidth: 1,
     borderRadius: 18,
     padding: 15,
-    marginBottom: 12,
     shadowColor: "#0F172A",
     shadowOpacity: 0.05,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+    flex: 1,
   },
   statIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center", marginBottom: 11 },
   statTitle: { fontSize: 12, fontWeight: "600" },
