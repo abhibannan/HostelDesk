@@ -109,6 +109,27 @@ export function HostelsScreen({
   }
 
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Sort hostels alphabetically by name
+  const sortedHostels = React.useMemo(() => {
+    return [...hostels].sort((a, b) => a.name.localeCompare(b.name));
+  }, [hostels]);
+
+  // Filter hostels by search
+  const filteredHostels = React.useMemo(() => {
+    if (!searchQuery.trim()) return sortedHostels;
+    const q = searchQuery.trim().toLowerCase();
+    return sortedHostels.filter((h) => {
+      return (
+        h.name.toLowerCase().includes(q) ||
+        (h.city || "").toLowerCase().includes(q) ||
+        (h.state || "").toLowerCase().includes(q) ||
+        (h.type || "").toLowerCase().includes(q) ||
+        (h.address || "").toLowerCase().includes(q)
+      );
+    });
+  }, [sortedHostels, searchQuery]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -225,11 +246,29 @@ export function HostelsScreen({
         </View>
       ) : null}
 
+      {/* ── Search Bar ────────────────────────────────────────────────── */}
+      <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search-outline" size={18} color={colors.secondary} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          placeholder="Search by name, city, state, or type..."
+          placeholderTextColor={colors.secondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          returnKeyType="search"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <Ionicons name="close-circle" size={18} color={colors.secondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* ── Section 2: All Properties ───────────────────────────────────── */}
       <View style={styles.sectionWrap}>
         <View style={styles.sectionHeaderRow}>
           <Text style={[styles.sectionDividerLabel, { color: colors.secondary }]}>
-            ALL PROPERTIES ({hostels.length})
+            ALL PROPERTIES ({filteredHostels.length})
           </Text>
         </View>
 
@@ -239,8 +278,14 @@ export function HostelsScreen({
             title="No hostels found"
             description="Add your first hostel above to begin managing rooms, residents, and fees."
           />
+        ) : filteredHostels.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No matching properties"
+            description={`No properties match "${searchQuery}". Try a different search.`}
+          />
         ) : (
-          hostels.map((hostel) => {
+          filteredHostels.map((hostel) => {
             const isSelected = hostel.id === selectedHostelId;
             return (
               <TouchableOpacity
@@ -270,20 +315,21 @@ export function HostelsScreen({
                   ]}
                 >
                   <Ionicons
-                    name="business-outline"
+                    name={isSelected ? "business" : "business-outline"}
                     size={22}
                     color={isSelected ? colors.primary : colors.secondary}
                   />
                 </View>
 
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={[styles.hostelName, { color: colors.text }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Text style={[styles.hostelName, { color: colors.text }]} numberOfLines={1}>
                       {hostel.name}
                     </Text>
                     {isSelected && (
-                      <View style={[styles.selectedMiniBadge, { backgroundColor: colors.primaryLight }]}>
-                        <Text style={[styles.selectedMiniText, { color: colors.primary }]}>Active</Text>
+                      <View style={[styles.selectedMiniBadge, { backgroundColor: colors.successLight }]}>
+                        <View style={[styles.liveDotSmall, { backgroundColor: colors.success }]} />
+                        <Text style={[styles.selectedMiniText, { color: colors.success }]}>Active</Text>
                       </View>
                     )}
                   </View>
@@ -292,6 +338,21 @@ export function HostelsScreen({
                     {hostel.city || hostel.address || "Location not set"}
                     {hostel.city && hostel.state ? `, ${hostel.state}` : ""}
                   </Text>
+
+                  {/* Type + Contact row */}
+                  <View style={styles.hostelMetaRow}>
+                    {hostel.type ? (
+                      <View style={[styles.hostelTypePill, { backgroundColor: colors.surfaceSecondary }]}>
+                        <Text style={[styles.hostelTypePillText, { color: colors.secondary }]}>{hostel.type}</Text>
+                      </View>
+                    ) : null}
+                    {hostel.contactPhone ? (
+                      <View style={styles.hostelMetaItem}>
+                        <Ionicons name="call-outline" size={11} color={colors.secondary} />
+                        <Text style={[styles.hostelMetaText, { color: colors.secondary }]}>{hostel.contactPhone}</Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
 
                 <View style={styles.hostelRightAction}>
@@ -622,6 +683,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
+  // Search bar
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+
   // General Hostel Card
   hostelCard: {
     borderRadius: 16,
@@ -630,43 +708,76 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     shadowColor: "#0F172A",
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   hostelIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
   hostelName: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   selectedMiniBadge: {
-    paddingHorizontal: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
   },
+  liveDotSmall: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
   selectedMiniText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  hostelLocation: {
+    marginTop: 2,
+    fontSize: 12,
+  },
+  hostelMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+    flexWrap: "wrap",
+  },
+  hostelTypePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  hostelTypePillText: {
     fontSize: 10,
     fontWeight: "700",
   },
-  hostelLocation: {
-    marginTop: 3,
-    fontSize: 12,
+  hostelMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  hostelMetaText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
   hostelRightAction: {
     marginLeft: 8,
   },
   selectedIndicator: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
   },
