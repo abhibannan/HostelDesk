@@ -122,8 +122,9 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // If the user accessed the /join path via QR code (supports GH pages subpaths)
-  if (window.location.pathname.endsWith("/join")) {
+  // If the user accessed the join page via QR code (using query params avoids GH pages 404)
+  const queryParams = new URLSearchParams(window.location.search);
+  if (queryParams.get("page") === "join" || window.location.pathname.endsWith("/join")) {
     return <JoinPage />;
   }
 

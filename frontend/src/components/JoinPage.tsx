@@ -6,6 +6,10 @@ const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-api.onrender.c
 export default function JoinPage() {
   const [hostelId, setHostelId] = useState("");
   const [room, setRoom] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+  const [step, setStep] = useState(1);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -15,54 +19,78 @@ export default function JoinPage() {
     emergencyContactPhone: "",
     address: ""
   });
-  
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const hId = params.get("hostelId") || "";
-    const rNum = params.get("room") || "";
-    setHostelId(hId);
-    setRoom(rNum);
+    const hId = params.get("hostelId");
+    const rNum = params.get("room");
+    
+    if (hId) setHostelId(hId);
+    if (rNum) setRoom(rNum);
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  const nextStep = () => {
+    if (step === 1 && (!formData.name || !formData.email || !formData.phone)) {
+      setError("Please fill out all personal details before continuing.");
+      return;
+    }
+    setError("");
+    setStep(2);
+  };
+
+  const prevStep = () => setStep(1);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus("submitting");
-    setErrorMessage("");
-
+    if (!hostelId) {
+      setError("Invalid invite link. Missing hostel ID.");
+      return;
+    }
+    
+    setLoading(true);
+    setError("");
+    
     try {
-      // Assuming a public endpoint for onboarding, if it doesn't exist we'll need to create it
       const response = await fetch(`${API_URL}/renters/onboard`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, hostelId, room }),
+        body: JSON.stringify({ ...formData, hostelId, room })
       });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to submit registration");
       
-      setStatus("success");
-    } catch (err) {
-      setStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "An unknown error occurred.");
+      if (!response.ok) {
+        throw new Error("Failed to submit registration");
+      }
+      
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message || "An error occurred");
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (status === "success") {
+  if (success) {
     return (
       <div className="join-container">
+        <div className="blob blob-1"></div>
+        <div className="blob blob-2"></div>
         <div className="glass-card success-card">
-          <div className="success-icon">✓</div>
-          <h1>Registration Complete!</h1>
-          <p>Welcome to your new home. Your details have been successfully submitted to the hostel management.</p>
-          <p className="subtext">You can now safely close this page.</p>
+          <div className="success-icon-wrapper">
+            <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+              <circle className="checkmark__circle" cx="26" cy="26" r="25" fill="none" />
+              <path className="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+            </svg>
+          </div>
+          <h1>Request Sent Successfully!</h1>
+          <p>Your details have been submitted to the management.</p>
+          <div className="room-badge">
+             <span>Hostel: {hostelId}</span>
+             {room && <span> • Room {room}</span>}
+          </div>
         </div>
       </div>
     );
@@ -70,55 +98,78 @@ export default function JoinPage() {
 
   return (
     <div className="join-container">
-      <div className="glass-card form-card">
-        <div className="form-header">
-          <h1>Join StayNexa</h1>
-          <p>Complete your resident profile</p>
-          {(room || hostelId) && (
-            <div className="badge-container">
-              {room && <span className="glass-badge">Room: {room}</span>}
-            </div>
-          )}
+      {/* Animated background blobs */}
+      <div className="blob blob-1"></div>
+      <div className="blob blob-2"></div>
+      <div className="blob blob-3"></div>
+
+      <div className="glass-card">
+        <div className="card-header">
+          <div className="logo-placeholder">
+            <span className="logo-icon">S</span>
+            <h2>StayNexa</h2>
+          </div>
+          <h1>Resident Onboarding</h1>
+          <p>Complete your profile to join {room ? `Room ${room}` : 'your new home'}.</p>
         </div>
 
-        {status === "error" && <div className="error-alert">{errorMessage}</div>}
+        {error && <div className="error-banner">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="join-form">
-          <div className="input-group">
-            <label htmlFor="name">Full Name</label>
-            <input type="text" id="name" name="name" required value={formData.name} onChange={handleChange} placeholder="John Doe" />
+        <form onSubmit={handleSubmit} className="modern-form">
+          {/* Step indicator */}
+          <div className="progress-bar">
+            <div className={`progress-step ${step >= 1 ? 'active' : ''}`}></div>
+            <div className={`progress-step ${step >= 2 ? 'active' : ''}`}></div>
           </div>
 
-          <div className="input-group">
-            <label htmlFor="email">Email Address</label>
-            <input type="email" id="email" name="email" required value={formData.email} onChange={handleChange} placeholder="john@example.com" />
+          <div className={`form-step ${step === 1 ? 'active' : 'hidden'}`}>
+            <h3>Personal Information</h3>
+            <div className="input-group">
+              <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder=" " />
+              <label>Full Name</label>
+            </div>
+            
+            <div className="input-group">
+              <input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder=" " />
+              <label>Email Address</label>
+            </div>
+            
+            <div className="input-group">
+              <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder=" " />
+              <label>Phone Number</label>
+            </div>
+            
+            <button type="button" className="btn-glow" onClick={nextStep}>
+              Continue <span>&rarr;</span>
+            </button>
           </div>
 
-          <div className="input-group">
-            <label htmlFor="phone">Phone Number</label>
-            <input type="tel" id="phone" name="phone" required value={formData.phone} onChange={handleChange} placeholder="+1 234 567 8900" />
+          <div className={`form-step ${step === 2 ? 'active' : 'hidden'}`}>
+            <h3>Emergency & Address</h3>
+            <div className="input-group">
+              <input type="text" name="emergencyContactName" value={formData.emergencyContactName} onChange={handleChange} required placeholder=" " />
+              <label>Emergency Contact Name</label>
+            </div>
+            
+            <div className="input-group">
+              <input type="tel" name="emergencyContactPhone" value={formData.emergencyContactPhone} onChange={handleChange} required placeholder=" " />
+              <label>Emergency Contact Phone</label>
+            </div>
+            
+            <div className="input-group">
+              <textarea name="address" value={formData.address} onChange={handleChange} required placeholder=" " rows={3}></textarea>
+              <label>Permanent Address</label>
+            </div>
+            
+            <div className="button-group">
+              <button type="button" className="btn-secondary" onClick={prevStep}>
+                Back
+              </button>
+              <button type="submit" className="btn-glow submit-btn" disabled={loading}>
+                {loading ? <span className="loader"></span> : "Submit Application"}
+              </button>
+            </div>
           </div>
-
-          <div className="form-divider"><span>Emergency Contact</span></div>
-
-          <div className="input-group">
-            <label htmlFor="emergencyContactName">Contact Name</label>
-            <input type="text" id="emergencyContactName" name="emergencyContactName" required value={formData.emergencyContactName} onChange={handleChange} placeholder="Jane Doe" />
-          </div>
-
-          <div className="input-group">
-            <label htmlFor="emergencyContactPhone">Contact Phone</label>
-            <input type="tel" id="emergencyContactPhone" name="emergencyContactPhone" required value={formData.emergencyContactPhone} onChange={handleChange} placeholder="+1 098 765 4321" />
-          </div>
-          
-          <div className="input-group">
-            <label htmlFor="address">Permanent Address</label>
-            <textarea id="address" name="address" required value={formData.address} onChange={handleChange} placeholder="123 Main St, City, Country" rows={3} />
-          </div>
-
-          <button type="submit" className="submit-btn" disabled={status === "submitting"}>
-            {status === "submitting" ? <span className="spinner"></span> : "Complete Registration"}
-          </button>
         </form>
       </div>
     </div>
