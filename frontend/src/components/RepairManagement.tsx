@@ -444,7 +444,7 @@ export default function RepairManagement({ hostelId }: Props) {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          borderBottom: "2px solid #e5e7eb",
+          borderBottom: "2px solid rgba(255, 255, 255, 0.1)",
           marginBottom: 24,
           paddingBottom: 4,
         }}
@@ -504,7 +504,7 @@ export default function RepairManagement({ hostelId }: Props) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 48, color: "#64748b" }}>Loading repair details...</div>
+        <div style={{ textAlign: "center", padding: 48, color: "#94a3b8" }}>Loading repair details...</div>
       ) : activeTab === "requests" ? (
         /* ============================================================
            TAB 1: REPAIR REQUESTS
@@ -519,19 +519,19 @@ export default function RepairManagement({ hostelId }: Props) {
               marginBottom: 24,
             }}
           >
-            <div style={{ background: "#fff", padding: "18px 20px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>Total Requests</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: "#1e293b", marginTop: 4 }}>{repairs.length}</div>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: "18px 20px", borderRadius: 12, border: "1px solid rgba(255, 255, 255, 0.1)" }}>
+              <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 600 }}>Total Requests</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", marginTop: 4 }}>{repairs.length}</div>
             </div>
-            <div style={{ background: "#fff", padding: "18px 20px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: "18px 20px", borderRadius: 12, border: "1px solid rgba(255, 255, 255, 0.1)" }}>
               <div style={{ fontSize: 13, color: "#d97706", fontWeight: 600 }}>Reported / Pending</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: "#d97706", marginTop: 4 }}>{countSubmitted}</div>
             </div>
-            <div style={{ background: "#fff", padding: "18px 20px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: "18px 20px", borderRadius: 12, border: "1px solid rgba(255, 255, 255, 0.1)" }}>
               <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 600 }}>In Progress</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: "#7c3aed", marginTop: 4 }}>{countInProgress}</div>
             </div>
-            <div style={{ background: "#fff", padding: "18px 20px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: "18px 20px", borderRadius: 12, border: "1px solid rgba(255, 255, 255, 0.1)" }}>
               <div style={{ fontSize: 13, color: "#16a34a", fontWeight: 600 }}>Resolved</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: "#16a34a", marginTop: 4 }}>{countResolved}</div>
             </div>
@@ -544,10 +544,10 @@ export default function RepairManagement({ hostelId }: Props) {
               flexWrap: "wrap",
               gap: 12,
               marginBottom: 20,
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               padding: 16,
               borderRadius: 12,
-              border: "1px solid #e2e8f0",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               alignItems: "center",
             }}
           >
@@ -560,16 +560,16 @@ export default function RepairManagement({ hostelId }: Props) {
                 flex: "1 1 240px",
                 padding: "8px 14px",
                 borderRadius: 8,
-                border: "1px solid #cbd5e1",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
                 fontSize: 14,
               }}
             />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>Status:</span>
+              <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 600 }}>Status:</span>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 }}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255, 255, 255, 0.2)", fontSize: 14 }}
               >
                 <option value="ALL">All Statuses</option>
                 <option value="SUBMITTED">Reported (Pending)</option>
@@ -579,11 +579,11 @@ export default function RepairManagement({ hostelId }: Props) {
               </select>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>Priority:</span>
+              <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 600 }}>Priority:</span>
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 }}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255, 255, 255, 0.2)", fontSize: 14 }}
               >
                 <option value="ALL">All Priorities</option>
                 <option value="URGENT">Urgent</option>
@@ -596,7 +596,7 @@ export default function RepairManagement({ hostelId }: Props) {
 
           {/* Repairs List */}
           {filteredRepairs.length === 0 ? (
-            <div style={{ background: "#fff", padding: 48, borderRadius: 12, textAlign: "center", color: "#64748b" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: 48, borderRadius: 12, textAlign: "center", color: "#94a3b8" }}>
               <h3>No repair requests found</h3>
               <p style={{ marginTop: 6, fontSize: 14 }}>
                 {repairs.length === 0
@@ -617,9 +617,9 @@ export default function RepairManagement({ hostelId }: Props) {
                   <div
                     key={r.id}
                     style={{
-                      background: "#fff",
+                      background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
                       borderRadius: 12,
-                      border: "1px solid #e2e8f0",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
                       padding: 20,
                       boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                       display: "flex",
@@ -643,7 +643,7 @@ export default function RepairManagement({ hostelId }: Props) {
                             Room {roomNum}
                           </span>
                         )}
-                        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#0f172a" }}>{r.title}</h3>
+                        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#fff" }}>{r.title}</h3>
                         {getPriorityBadge(r.priority)}
                         {getStatusBadge(r.status)}
                       </div>
@@ -664,7 +664,7 @@ export default function RepairManagement({ hostelId }: Props) {
                       </div>
                     </div>
 
-                    <p style={{ margin: 0, color: "#334155", fontSize: 14, lineHeight: 1.5 }}>{r.description}</p>
+                    <p style={{ margin: 0, color: "#e2e8f0", fontSize: 14, lineHeight: 1.5 }}>{r.description}</p>
 
                     {/* Metadata strip */}
                     <div
@@ -673,8 +673,8 @@ export default function RepairManagement({ hostelId }: Props) {
                         flexWrap: "wrap",
                         gap: 18,
                         fontSize: 13,
-                        color: "#64748b",
-                        borderTop: "1px solid #f1f5f9",
+                        color: "#94a3b8",
+                        borderTop: "1px solid rgba(255, 255, 255, 0.1)",
                         paddingTop: 10,
                       }}
                     >
@@ -697,12 +697,12 @@ export default function RepairManagement({ hostelId }: Props) {
                     {r.adminNotes && (
                       <div
                         style={{
-                          background: "#f8fafc",
+                          background: "#020617",
                           borderLeft: "3px solid #6366f1",
                           padding: "8px 12px",
                           borderRadius: "0 6px 6px 0",
                           fontSize: 13,
-                          color: "#475569",
+                          color: "#cbd5e1",
                         }}
                       >
                         <strong>Work / Admin Notes:</strong> {r.adminNotes}
@@ -721,12 +721,12 @@ export default function RepairManagement({ hostelId }: Props) {
         <div>
           <div
             style={{
-              background: "#eff6ff",
-              border: "1px solid #bfdbfe",
+              background: "rgba(59, 130, 246, 0.1)",
+              border: "1px solid rgba(59, 130, 246, 0.2)",
               borderRadius: 12,
               padding: "16px 20px",
               marginBottom: 24,
-              color: "#1e3a8a",
+              color: "#bfdbfe",
               display: "flex",
               alignItems: "flex-start",
               gap: 12,
@@ -735,7 +735,7 @@ export default function RepairManagement({ hostelId }: Props) {
             <span style={{ fontSize: 22 }}>🔧</span>
             <div>
               <strong style={{ fontSize: 15 }}>Repair Personnel Portal Access</strong>
-              <p style={{ margin: "4px 0 0", fontSize: 13.5, lineHeight: 1.5, color: "#1e40af" }}>
+              <p style={{ margin: "4px 0 0", fontSize: 13.5, lineHeight: 1.5, color: "#93c5fd" }}>
                 When you add a repair technician below with their email and mobile number, they can log in using either their{" "}
                 <strong>Email OR Mobile Number</strong> on the main login screen.
                 <br />
@@ -745,7 +745,7 @@ export default function RepairManagement({ hostelId }: Props) {
           </div>
 
           {repairPersons.length === 0 ? (
-            <div style={{ background: "#fff", padding: 48, borderRadius: 12, textAlign: "center", color: "#64748b" }}>
+            <div style={{ background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)", padding: 48, borderRadius: 12, textAlign: "center", color: "#94a3b8" }}>
               <h3>No repair personnel added yet</h3>
               <p style={{ marginTop: 6, fontSize: 14 }}>
                 Add your technicians (plumbers, electricians, carpenters) so they can access their repair portal.
@@ -770,9 +770,9 @@ export default function RepairManagement({ hostelId }: Props) {
                 <div
                   key={p.id}
                   style={{
-                    background: "#fff",
+                    background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
                     borderRadius: 12,
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
                     padding: 20,
                     boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                     display: "flex",
@@ -800,7 +800,7 @@ export default function RepairManagement({ hostelId }: Props) {
                           {p.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{p.name}</h4>
+                          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>{p.name}</h4>
                           <span
                             style={{
                               display: "inline-block",
@@ -809,8 +809,8 @@ export default function RepairManagement({ hostelId }: Props) {
                               borderRadius: 4,
                               fontSize: 12,
                               fontWeight: 600,
-                              background: "#f1f5f9",
-                              color: "#475569",
+                              background: "rgba(255, 255, 255, 0.05)",
+                              color: "#cbd5e1",
                             }}
                           >
                             {p.specialty || "General Maintenance"}
@@ -831,7 +831,7 @@ export default function RepairManagement({ hostelId }: Props) {
                       </span>
                     </div>
 
-                    <div style={{ fontSize: 13.5, color: "#475569", display: "flex", flexDirection: "column", gap: 6, margin: "14px 0" }}>
+                    <div style={{ fontSize: 13.5, color: "#cbd5e1", display: "flex", flexDirection: "column", gap: 6, margin: "14px 0" }}>
                       <div>
                         <strong>📧 Email:</strong> {p.email}
                       </div>
@@ -844,7 +844,7 @@ export default function RepairManagement({ hostelId }: Props) {
                     </div>
                   </div>
 
-                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
                     <button
                       className="secondary-button"
                       onClick={() => {
@@ -1089,7 +1089,7 @@ export default function RepairManagement({ hostelId }: Props) {
                 onChange={(e) => setPersonPassword(e.target.value)}
                 placeholder="Default: Repair@123"
               />
-              <span style={{ fontSize: 12, color: "#64748b", marginTop: -6, display: "block" }}>
+              <span style={{ fontSize: 12, color: "#94a3b8", marginTop: -6, display: "block" }}>
                 The technician will use this password alongside their email or mobile number to log in.
               </span>
 

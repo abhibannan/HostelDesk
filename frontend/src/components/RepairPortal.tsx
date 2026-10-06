@@ -241,7 +241,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
   const selectedHostel = hostels.find((h) => h.id === selectedHostelId);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", color: "#0f172a", fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "#020617", color: "#fff", fontFamily: "Inter, system-ui, sans-serif" }}>
       {/* ─────────────────────────────────────────────────────────────
           PORTAL TOPBAR
           ───────────────────────────────────────────────────────────── */}
@@ -402,7 +402,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
           <div
             onClick={() => setStatusFilter("ALL")}
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               padding: "20px 24px",
               borderRadius: 14,
               border: statusFilter === "ALL" ? "2px solid #4f46e5" : "1px solid #e2e8f0",
@@ -411,15 +411,15 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
               transition: "all 0.15s ease",
             }}
           >
-            <div style={{ fontSize: 13, color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Total Jobs</div>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{repairs.length}</div>
+            <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>Total Jobs</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: "#fff", marginTop: 4 }}>{repairs.length}</div>
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>All logged tickets</div>
           </div>
 
           <div
             onClick={() => setStatusFilter("SUBMITTED")}
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               padding: "20px 24px",
               borderRadius: 14,
               border: statusFilter === "SUBMITTED" ? "2px solid #d97706" : "1px solid #e2e8f0",
@@ -436,7 +436,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
           <div
             onClick={() => setStatusFilter("IN_PROGRESS")}
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               padding: "20px 24px",
               borderRadius: 14,
               border: statusFilter === "IN_PROGRESS" ? "2px solid #7c3aed" : "1px solid #e2e8f0",
@@ -453,7 +453,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
           <div
             onClick={() => setStatusFilter("RESOLVED")}
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               padding: "20px 24px",
               borderRadius: 14,
               border: statusFilter === "RESOLVED" ? "2px solid #16a34a" : "1px solid #e2e8f0",
@@ -471,9 +471,9 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
         {/* Filter bar & Search */}
         <section
           style={{
-            background: "#fff",
+            background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
             borderRadius: 14,
-            border: "1px solid #e2e8f0",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
             padding: "16px 20px",
             marginBottom: 24,
             display: "flex",
@@ -521,7 +521,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                 width: "100%",
                 padding: "9px 14px",
                 borderRadius: 8,
-                border: "1px solid #cbd5e1",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
                 fontSize: 13.5,
               }}
             />
@@ -529,8 +529,8 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
               onClick={() => selectedHostelId && loadHostelRepairs(selectedHostelId)}
               disabled={refreshing}
               style={{
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
+                background: "#020617",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
                 padding: "9px 14px",
                 borderRadius: 8,
                 fontWeight: 600,
@@ -546,20 +546,20 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
 
         {/* Jobs List */}
         {loading ? (
-          <div style={{ textAlign: "center", padding: 60, color: "#64748b" }}>Loading maintenance tasks...</div>
+          <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>Loading maintenance tasks...</div>
         ) : filteredRepairs.length === 0 ? (
           <div
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               borderRadius: 14,
-              border: "1px solid #e2e8f0",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               padding: 60,
               textAlign: "center",
-              color: "#64748b",
+              color: "#94a3b8",
             }}
           >
             <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
-            <h3 style={{ margin: 0, fontSize: 18, color: "#1e293b" }}>No repairs found</h3>
+            <h3 style={{ margin: 0, fontSize: 18, color: "#fff" }}>No repairs found</h3>
             <p style={{ marginTop: 6, fontSize: 14 }}>
               {statusFilter === "ALL"
                 ? "There are no repair tickets at this hostel right now."
@@ -584,7 +584,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                 <div
                   key={r.id}
                   style={{
-                    background: "#fff",
+                    background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
                     borderRadius: 14,
                     border: isUrgent && !isResolved ? "2px solid #f87171" : "1px solid #e2e8f0",
                     padding: 22,
@@ -627,7 +627,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                         </div>
                       )}
 
-                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>{r.title}</h3>
+                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff" }}>{r.title}</h3>
 
                       {/* Priority Tag */}
                       <span
@@ -736,9 +736,9 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                           setModalNotes("");
                         }}
                         style={{
-                          background: "#fff",
-                          color: "#475569",
-                          border: "1px solid #cbd5e1",
+                          background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
+                          color: "#cbd5e1",
+                          border: "1px solid rgba(255, 255, 255, 0.2)",
                           padding: "8px 14px",
                           borderRadius: 8,
                           fontWeight: 600,
@@ -754,11 +754,11 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                   {/* Description */}
                   <div
                     style={{
-                      background: "#f8fafc",
+                      background: "#020617",
                       padding: "12px 16px",
                       borderRadius: 10,
                       fontSize: 14.5,
-                      color: "#334155",
+                      color: "#e2e8f0",
                       lineHeight: 1.55,
                     }}
                   >
@@ -789,10 +789,10 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      borderTop: "1px solid #f1f5f9",
+                      borderTop: "1px solid rgba(255, 255, 255, 0.1)",
                       paddingTop: 12,
                       fontSize: 13,
-                      color: "#64748b",
+                      color: "#94a3b8",
                       flexWrap: "wrap",
                       gap: 12,
                     }}
@@ -851,7 +851,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
         >
           <div
             style={{
-              background: "#fff",
+              background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
               borderRadius: 16,
               width: "100%",
               maxWidth: 520,
@@ -859,15 +859,15 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
               boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
             }}
           >
-            <h2 style={{ margin: "0 0 6px", fontSize: 20, color: "#0f172a" }}>Update Job Progress</h2>
-            <p style={{ margin: "0 0 18px", color: "#64748b", fontSize: 14 }}>
+            <h2 style={{ margin: "0 0 6px", fontSize: 20, color: "#fff" }}>Update Job Progress</h2>
+            <p style={{ margin: "0 0 18px", color: "#94a3b8", fontSize: 14 }}>
               <strong>{activeRepair.title}</strong>
               {activeRepair.roomId && ` • Room ${roomMap.get(activeRepair.roomId) || ""}`}
             </p>
 
             <form onSubmit={handleModalSubmit}>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6, color: "#334155" }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6, color: "#e2e8f0" }}>
                   Status
                 </label>
                 <select
@@ -877,9 +877,9 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                     width: "100%",
                     padding: "10px 14px",
                     borderRadius: 8,
-                    border: "1px solid #cbd5e1",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
                     fontSize: 14,
-                    background: "#fff",
+                    background: "rgba(30, 41, 59, 0.6)", backdropFilter: "blur(12px)",
                   }}
                 >
                   <option value="IN_PROGRESS">In Progress (Still Working)</option>
@@ -888,7 +888,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
               </div>
 
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6, color: "#334155" }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6, color: "#e2e8f0" }}>
                   Technician Notes / Details
                 </label>
                 <textarea
@@ -900,7 +900,7 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                     width: "100%",
                     padding: "10px 14px",
                     borderRadius: 8,
-                    border: "1px solid #cbd5e1",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
                     fontSize: 14,
                     boxSizing: "border-box",
                   }}
@@ -915,8 +915,8 @@ export default function RepairPortal({ user, token, onLogout }: Props) {
                   style={{
                     padding: "10px 18px",
                     borderRadius: 8,
-                    background: "#f1f5f9",
-                    color: "#475569",
+                    background: "rgba(255, 255, 255, 0.05)",
+                    color: "#cbd5e1",
                     border: "none",
                     fontWeight: 600,
                     fontSize: 14,
