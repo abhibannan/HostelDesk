@@ -67,13 +67,17 @@ router.post("/renters/onboard", async (req, res, next) => {
       return;
     }
     const roomDoc = roomsSnap.docs[0];
+    if (!roomDoc) {
+      res.status(404).json({ message: "Room not found" });
+      return;
+    }
     const roomId = roomDoc.id;
     const monthlyFee = roomDoc.data()?.baseRent || 0;
     
     const nameParts = name.split(" ");
-    const firstName = nameParts[0];
+    const firstName = nameParts[0] || "Unknown";
     const lastName = nameParts.slice(1).join(" ");
-    const joiningDate = new Date().toISOString().split("T")[0];
+    const joiningDate = new Date().toISOString().split("T")[0] as string;
     
     let firebaseUid;
     try {
@@ -128,7 +132,7 @@ router.post("/renters/onboard", async (req, res, next) => {
     };
 
     const feeRef = db.collection("fees").doc();
-    const firstFeeMonth = joiningDate.slice(0, 7);
+    const firstFeeMonth = joiningDate.slice(0, 7) as string;
     const fee = {
       id: feeRef.id,
       hostelId,
