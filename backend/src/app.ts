@@ -52,21 +52,12 @@ app.use("/api/v1", maintenanceMiddleware);
 
 app.use("/api/v1", apiRouter);
 
-// Serve frontend static files from the frontend/dist directory
-const frontendPath = path.join(__dirname, "../../frontend/dist");
-app.use(express.static(frontendPath));
-
 // 404 handler for API routes
 app.use("/api", (req, res) => {
   res.status(404).json({
     message: "Route not found",
     path: req.originalUrl,
   });
-});
-
-// Catch-all route to serve the React app for any other non-API requests (for React Router)
-app.get(/(.*)/, (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 // Global error handler
