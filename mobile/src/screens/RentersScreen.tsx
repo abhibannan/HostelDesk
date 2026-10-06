@@ -331,7 +331,7 @@ export function RentersScreen(props: RentersScreenProps) {
   const normalizedSearch = renterSearch.trim().toLowerCase();
 
   const filteredRenters = useMemo(() => {
-    return currentHostelRenters.filter((renter) => {
+    let result = currentHostelRenters.filter((renter) => {
       const active = String(renter.status || "ACTIVE").toUpperCase() === "ACTIVE";
       if (statusFilter === "ACTIVE" && !active) return false;
       if (statusFilter === "INACTIVE" && active) return false;
@@ -360,6 +360,15 @@ export function RentersScreen(props: RentersScreenProps) {
 
       return searchableText.includes(normalizedSearch);
     });
+
+    // Sort alphabetically by name
+    result.sort((a, b) => {
+      const nameA = getName(a).toLowerCase();
+      const nameB = getName(b).toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    return result;
   }, [currentHostelRenters, currentHostelRooms, normalizedSearch, statusFilter]);
 
   const renderRenterCard = useCallback(({ item: renter }: { item: Renter }) => {
