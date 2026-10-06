@@ -15,6 +15,7 @@ export default function JoinPage() {
     name: "",
     email: "",
     phone: "",
+    password: "",
     emergencyContactName: "",
     emergencyContactPhone: "",
     address: ""
@@ -34,7 +35,7 @@ export default function JoinPage() {
   };
 
   const nextStep = () => {
-    if (step === 1 && (!formData.name || !formData.email || !formData.phone)) {
+    if (step === 1 && (!formData.name || !formData.email || !formData.phone || !formData.password)) {
       setError("Please fill out all personal details before continuing.");
       return;
     }
@@ -137,6 +138,11 @@ export default function JoinPage() {
             <div className="input-group">
               <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required placeholder=" " />
               <label>Phone Number</label>
+            </div>
+            
+            <div className="input-group">
+              <input type="password" name="password" value={formData.password} onChange={handleChange} required placeholder=" " />
+              <label>Create Password</label>
             </div>
             
             <button type="button" className="btn-glow" onClick={nextStep}>

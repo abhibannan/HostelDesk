@@ -50,7 +50,7 @@ router.use("/hostels", auditLogsRouter);
 // Public route for renter self-onboarding from QR code
 router.post("/renters/onboard", async (req, res, next) => {
   try {
-    const { name, email, phone, emergencyContactName, emergencyContactPhone, address, hostelId, room } = req.body;
+    const { name, email, phone, password, emergencyContactName, emergencyContactPhone, address, hostelId, room } = req.body;
     
     // Import db dynamically here to avoid circular dependency issues at the top level if any
     const { db } = await import("../config/firebase.js");
@@ -61,6 +61,7 @@ router.post("/renters/onboard", async (req, res, next) => {
       name,
       email,
       phone,
+      password, // Temporary store for admin approval
       emergencyContactName,
       emergencyContactPhone,
       address,
