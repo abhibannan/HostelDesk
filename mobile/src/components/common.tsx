@@ -219,9 +219,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   statCard: {
-    width: "47%",
-    flexGrow: 1,
-    minWidth: 140,
+    width: "48%",
     borderWidth: 1,
     borderRadius: 18,
     padding: 15,
