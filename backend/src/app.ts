@@ -65,7 +65,7 @@ app.use("/api", (req, res) => {
 });
 
 // Catch-all route to serve the React app for any other non-API requests (for React Router)
-app.get("*", (req, res) => {
+app.get(/(.*)/, (req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
 });
 
