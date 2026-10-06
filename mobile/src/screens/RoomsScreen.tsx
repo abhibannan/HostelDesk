@@ -129,6 +129,7 @@ export function RoomsScreen({
   const [occupantsLoading, setOccupantsLoading] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -236,9 +237,11 @@ export function RoomsScreen({
 
   function openRoomDetail(room: Room) {
     setSelectedRoom(room);
+    setOccupants([]);  // Clear previous room's occupants to prevent cross-contamination
     setLocalMaxOccupants(room.maxOccupants ?? 2);
     setTransferOccupant(null);
     setTransferTargetId("");
+    setShowTransferPicker(false);
     setDetailVisible(true);
     void loadOccupants(room);
   }
@@ -314,6 +317,30 @@ export function RoomsScreen({
 
   const transferableRooms = currentHostelRooms.filter((r) => r.id !== selectedRoom?.id);
 
+  // ── Sort rooms by floor then room number ──────────────────────────────────
+  const sortedRooms = React.useMemo(() => {
+    return [...currentHostelRooms].sort((a, b) => {
+      const floorA = Number(a.floor ?? 0);
+      const floorB = Number(b.floor ?? 0);
+      if (floorA !== floorB) return floorA - floorB;
+      const numA = parseInt(String(a.roomNumber), 10);
+      const numB = parseInt(String(b.roomNumber), 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return String(a.roomNumber).localeCompare(String(b.roomNumber));
+    });
+  }, [currentHostelRooms]);
+
+  // ── Filter rooms by search ────────────────────────────────────────────────
+  const filteredRooms = React.useMemo(() => {
+    if (!searchQuery.trim()) return sortedRooms;
+    const q = searchQuery.trim().toLowerCase();
+    return sortedRooms.filter((r) => {
+      const rn = String(r.roomNumber).toLowerCase();
+      const fl = r.floor !== undefined && r.floor !== null ? `floor ${r.floor}` : "ground floor";
+      return rn.includes(q) || fl.includes(q);
+    });
+  }, [sortedRooms, searchQuery]);
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -357,6 +384,24 @@ export function RoomsScreen({
           </View>
         </View>
 
+        {/* Search bar */}
+        <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Ionicons name="search-outline" size={18} color={colors.secondary} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search rooms by number or floor..."
+            placeholderTextColor={colors.secondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={18} color={colors.secondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Action row */}
         <View style={styles.actionRow}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Room Management</Text>
@@ -379,9 +424,15 @@ export function RoomsScreen({
             title="No rooms found"
             description="Add your first room to start managing occupancy."
           />
+        ) : filteredRooms.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No matching rooms"
+            description={`No rooms match "${searchQuery}". Try a different search.`}
+          />
         ) : (
-          <View style={styles.roomList}>
-            {currentHostelRooms.map((room) => {
+          <View style={styles.roomGrid}>
+            {filteredRooms.map((room) => {
               const count = occupantCountMap[room.id] ?? 0;
               const max = room.maxOccupants ?? 0;
               const statusInfo = roomStatusColor(room, count, colors);
@@ -397,62 +448,58 @@ export function RoomsScreen({
                   }}
                   activeOpacity={0.78}
                 >
-                  {/* Accent strip */}
-                  <View style={[styles.roomAccentStrip, { backgroundColor: statusInfo.fg }]} />
-
-                  <View style={styles.roomCardContent}>
-                    {/* Left: Icon */}
+                  {/* Top row: Icon + Delete */}
+                  <View style={styles.roomCardHeader}>
                     <View style={[styles.roomIconBox, { backgroundColor: statusInfo.bg }]}>
-                      <Ionicons name="bed-outline" size={22} color={statusInfo.fg} />
+                      <Ionicons name="bed-outline" size={18} color={statusInfo.fg} />
                     </View>
+                    <TouchableOpacity
+                      style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        haptic.heavy();
+                        onDeleteRoom(room);
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={14} color={colors.danger} />
+                    </TouchableOpacity>
+                  </View>
 
-                    {/* Center: Info */}
-                    <View style={styles.roomCardCenter}>
-                      <View style={styles.roomCardTitleRow}>
-                        <Text style={[styles.roomNumber, { color: colors.text }]}>Room {room.roomNumber}</Text>
-                        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                          <Text style={[styles.statusBadgeText, { color: statusInfo.fg }]}>
-                            {statusInfo.label}
-                          </Text>
-                        </View>
+                  {/* Body */}
+                  <View style={styles.roomCardBody}>
+                    <Text style={[styles.roomNumber, { color: colors.text }]}>Room {room.roomNumber}</Text>
+                    <Text style={[styles.roomFloor, { color: colors.secondary }]}>
+                      {room.floor !== undefined && room.floor !== null
+                        ? `Floor ${room.floor}`
+                        : "Ground Floor"}
+                    </Text>
+
+                    {/* Occupancy Bar */}
+                    {max > 0 && (
+                      <View style={[styles.occupancyBarBg, { backgroundColor: colors.surfaceSecondary }]}>
+                        <View
+                          style={[
+                            styles.occupancyBarFill,
+                            {
+                              width: `${occupancyFraction * 100}%`,
+                              backgroundColor: statusInfo.fg,
+                            },
+                          ]}
+                        />
                       </View>
-                      <Text style={[styles.roomFloor, { color: colors.secondary }]}>
-                        {room.floor !== undefined && room.floor !== null
-                          ? `Floor ${room.floor}`
-                          : "Ground Floor"}
-                        {max > 0 ? ` • ${count}/${max} beds` : ""}
+                    )}
+
+                    {/* Footer */}
+                    <View style={styles.roomCardFooter}>
+                      <Text style={[styles.occupantCount, { color: colors.secondary }]}>
+                        {count}{max > 0 ? `/${max}` : ""} {count === 1 ? "bed" : "beds"}
                       </Text>
-
-                      {/* Occupancy Bar */}
-                      {max > 0 && (
-                        <View style={[styles.occupancyBarBg, { backgroundColor: colors.surfaceSecondary }]}>
-                          <View
-                            style={[
-                              styles.occupancyBarFill,
-                              {
-                                width: `${occupancyFraction * 100}%`,
-                                backgroundColor: statusInfo.fg,
-                              },
-                            ]}
-                          />
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Right: Actions */}
-                    <View style={styles.roomCardActions}>
-                      <TouchableOpacity
-                        style={[styles.roomDeleteBtn, { backgroundColor: colors.dangerLight }]}
-                        onPress={(e) => {
-                          e.stopPropagation?.();
-                          haptic.heavy();
-                          onDeleteRoom(room);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="trash-outline" size={14} color={colors.danger} />
-                      </TouchableOpacity>
-                      <Ionicons name="chevron-forward" size={18} color={colors.secondary} style={{ marginTop: 6 }} />
+                      <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                        <Text style={[styles.statusBadgeText, { color: statusInfo.fg }]}>
+                          {statusInfo.label}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -1011,50 +1058,61 @@ const styles = StyleSheet.create({
   },
   smallPrimaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
 
-  // Room list
-  roomList: {
-    gap: 12,
-  },
-  roomCard: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 16,
-    backgroundColor: COLORS.card,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  roomAccentStrip: {
-    height: 4,
-    width: "100%",
-  },
-  roomCardContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    gap: 12,
-  },
-  roomIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  roomCardCenter: {
-    flex: 1,
-  },
-  roomCardTitleRow: {
+  // Search bar
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 2,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+
+  // Room grid
+  roomGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  roomCard: {
+    width: "48%",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: COLORS.card,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  roomCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  roomIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomCardBody: {
+    gap: 3,
   },
   roomNumber: { fontSize: 15, fontWeight: "800", color: COLORS.text },
-  roomFloor: { fontSize: 12, color: COLORS.secondary, marginTop: 1 },
+  roomFloor: { fontSize: 11, color: COLORS.secondary },
   occupancyBarBg: {
     height: 5,
     borderRadius: 3,
@@ -1066,10 +1124,13 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
   },
-  roomCardActions: {
+  roomCardFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: 4,
+    marginTop: 8,
   },
+  occupantCount: { fontSize: 11, fontWeight: "600" },
   statusBadge: {
     borderRadius: 6,
     paddingHorizontal: 7,
@@ -1077,9 +1138,9 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: { fontSize: 9, fontWeight: "800" },
   roomDeleteBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
