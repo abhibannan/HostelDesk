@@ -623,7 +623,7 @@ const styles = StyleSheet.create({
   propertyLabel: { fontSize: 10, fontWeight: "800", color: COLORS.secondary, letterSpacing: 1 },
   propertyName: { marginTop: 4, fontSize: 16, fontWeight: "800", color: COLORS.text },
   propertyLocation: { marginTop: 3, fontSize: 12, color: COLORS.secondary },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   chartCard: {
     borderWidth: 1,
     borderColor: COLORS.border,
