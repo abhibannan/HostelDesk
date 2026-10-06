@@ -3,7 +3,6 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import path from "path";
-import { fileURLToPath } from "url";
 
 import { env } from "./config/env.js";
 import apiRouter from "./routes/index.js";
@@ -52,10 +51,6 @@ app.use("/api/v1", generalApiLimiter);
 app.use("/api/v1", maintenanceMiddleware);
 
 app.use("/api/v1", apiRouter);
-
-// Set up __dirname for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Serve frontend static files from the frontend/dist directory
 const frontendPath = path.join(__dirname, "../../frontend/dist");
