@@ -1135,7 +1135,27 @@ router.patch(
       };
 
       if (parsed.data.roomId !== undefined) renterUpdates.roomId = parsed.data.roomId;
-      if (parsed.data.monthlyFee !== undefined) renterUpdates.monthlyFee = parsed.data.monthlyFee;
+      if (parsed.data.monthlyFee !== undefined) {
+        renterUpdates.monthlyFee = parsed.data.monthlyFee;
+        try {
+          const pendingFeesSnap = await db
+            .collection("fees")
+            .where("hostelId", "==", hostelId)
+            .where("renterId", "==", renterId)
+            .where("status", "==", "PENDING")
+            .get();
+
+          if (!pendingFeesSnap.empty) {
+            const batch = db.batch();
+            for (const feeDoc of pendingFeesSnap.docs) {
+              batch.update(feeDoc.ref, { amount: parsed.data.monthlyFee, updatedAt: now });
+            }
+            await batch.commit();
+          }
+        } catch(err) {
+          console.error("Failed to update pending fees amount", err);
+        }
+      }
       if (parsed.data.securityDeposit !== undefined) renterUpdates.securityDeposit = parsed.data.securityDeposit;
       if (parsed.data.joiningDate !== undefined) renterUpdates.joiningDate = parsed.data.joiningDate;
       if (parsed.data.status !== undefined) renterUpdates.status = parsed.data.status;

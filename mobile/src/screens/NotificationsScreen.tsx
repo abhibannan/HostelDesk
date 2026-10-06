@@ -160,7 +160,7 @@ export function NotificationsScreen({
         <View style={[styles.infoBar, { backgroundColor: isDark ? colors.surfaceSecondary : COLORS.primaryLight, borderColor: isDark ? colors.border : "#BFDBFE" }]}>
           <Ionicons name="information-circle" size={16} color={COLORS.primary} />
           <Text style={[styles.infoBarText, { color: isDark ? colors.text : COLORS.primaryDark }]}>
-            Broadcast announcements and alerts directly to resident notification trays.
+            Easily send official announcements, maintenance notices, and urgent alerts to all residents in real time.
           </Text>
         </View>
 
@@ -262,9 +262,9 @@ export function NotificationsScreen({
           <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: isDark ? 1 : 0 }]}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalTitle, { color: colors.text }]}>Broadcast to Residents</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>New Broadcast Message</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.secondary }]}>
-                  Dispatches an instant notification to all active residents.
+                  Send an instant notification to all selected residents.
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setShowBroadcastModal(false)}>
