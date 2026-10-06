@@ -47,4 +47,33 @@ router.use("/hostels", payment_proofs_routes);
 router.use("/hostels", expensesRouter);
 router.use("/hostels", auditLogsRouter);
 
+// Public route for renter self-onboarding from QR code
+router.post("/renters/onboard", async (req, res, next) => {
+  try {
+    const { name, email, phone, emergencyContactName, emergencyContactPhone, address, hostelId, room } = req.body;
+    
+    // Import db dynamically here to avoid circular dependency issues at the top level if any
+    const { db } = await import("../config/firebase.js");
+    
+    const requestRef = db.collection("onboarding_requests").doc();
+    await requestRef.set({
+      id: requestRef.id,
+      name,
+      email,
+      phone,
+      emergencyContactName,
+      emergencyContactPhone,
+      address,
+      hostelId,
+      roomNumber: room,
+      status: "PENDING",
+      createdAt: new Date().toISOString()
+    });
+    
+    res.status(201).json({ message: "Registration submitted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

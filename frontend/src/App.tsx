@@ -18,6 +18,7 @@ import { auth } from "./firebase.ts";
 import RenterManagement from "./components/RenterManagement";
 import RepairManagement from "./components/RepairManagement";
 import RepairPortal from "./components/RepairPortal";
+import JoinPage from "./components/JoinPage";
 import "./App.css";
 
 const API_URL = "http://localhost:3000/api/v1";
@@ -120,6 +121,11 @@ function App() {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // If the user accessed the /join path via QR code
+  if (window.location.pathname === "/join") {
+    return <JoinPage />;
+  }
 
   // Restore authenticated session when page is refreshed or reopened
   useEffect(() => {

@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import QRCode from "react-native-qrcode-svg";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
 import { Room } from "../types";
@@ -36,9 +37,6 @@ export function RenterOnboardingQRModal({
   const selectedRoom = rooms.find((r) => r.id === selectedRoomId);
   const roomParam = selectedRoom ? `&room=${encodeURIComponent(selectedRoom.roomNumber)}` : "";
   const inviteUrl = `https://staynexa.com/join?hostelId=${encodeURIComponent(hostelId)}${roomParam}`;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-    inviteUrl
-  )}&bgcolor=FFFFFF&color=1E1B4B&margin=10`;
 
   const handleCopyLink = async () => {
     await Clipboard.setStringAsync(inviteUrl);
@@ -79,7 +77,12 @@ export function RenterOnboardingQRModal({
           {/* QR Code Container */}
           <View style={styles.qrWrapper}>
             <View style={styles.qrBorder}>
-              <Image source={{ uri: qrCodeUrl }} style={styles.qrImage} />
+              <QRCode
+                value={inviteUrl}
+                size={200}
+                color="#1E1B4B"
+                backgroundColor="#FFFFFF"
+              />
             </View>
             <Text style={[styles.instruction, { color: colors.secondary }]}>
               Show this QR code to the new resident. Once scanned with their camera, they can register and submit their details immediately.
