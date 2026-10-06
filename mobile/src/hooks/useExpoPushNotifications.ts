@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
+import { registerBackgroundNotificationTask } from "../services/backgroundNotificationTask";
 
 // Check if running in Expo Go client (which can't use native FCM device tokens)
 function checkIsExpoGo(): boolean {
@@ -70,6 +71,9 @@ export function useExpoPushNotifications(
             },
           });
         }
+
+        // Register the background task so notifications arrive even when app is killed
+        await registerBackgroundNotificationTask();
       } catch (err) {
         console.warn("Error configuring notifications channel/permissions:", err);
       }

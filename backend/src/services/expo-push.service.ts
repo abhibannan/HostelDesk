@@ -76,7 +76,31 @@ async function sendFcmV1(
           notification: { title, body },
           android: {
             priority: "high",
-            notification: { channelId: "default", sound: "default", priority: "max" },
+            ttl: "86400s", // Keep message for 24h if device is offline
+            notification: {
+              channelId: "default",
+              sound: "default",
+              defaultSound: true,
+              defaultVibrateTimings: true,
+              priority: "MAX" as any,
+              visibility: "PUBLIC" as any,
+            },
+          },
+          apns: {
+            headers: {
+              "apns-priority": "10",                // Immediate delivery
+              "apns-push-type": "alert",            // Required for visible notifications
+            },
+            payload: {
+              aps: {
+                alert: { title, body },
+                sound: "default",
+                badge: 1,
+                "content-available": 1,             // Wake app for background processing
+                "interruption-level": "time-sensitive",
+                "mutable-content": 1,
+              },
+            },
           },
           data,
         },
