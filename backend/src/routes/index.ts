@@ -50,26 +50,104 @@ router.use("/hostels", auditLogsRouter);
 // Public route for renter self-onboarding from QR code
 router.post("/renters/onboard", async (req, res, next) => {
   try {
-    const { name, email, phone, password, emergencyContactName, emergencyContactPhone, address, hostelId, room } = req.body;
+    const { name, email, phone, password, emergencyContactName, emergencyContactPhone, address, hostelId, room: roomNumber } = req.body;
     
     // Import db dynamically here to avoid circular dependency issues at the top level if any
-    const { db } = await import("../config/firebase.js");
+    const { db, firebaseAuth } = await import("../config/firebase.js");
     
-    const requestRef = db.collection("onboarding_requests").doc();
-    await requestRef.set({
-      id: requestRef.id,
-      name,
+    // Lookup room to get roomId and base rent
+    const roomsSnap = await db.collection("rooms")
+      .where("hostelId", "==", hostelId)
+      .where("roomNumber", "==", roomNumber)
+      .limit(1)
+      .get();
+
+    if (roomsSnap.empty) {
+      res.status(404).json({ message: "Room not found" });
+      return;
+    }
+    const roomDoc = roomsSnap.docs[0];
+    const roomId = roomDoc.id;
+    const monthlyFee = roomDoc.data()?.baseRent || 0;
+    
+    const nameParts = name.split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(" ");
+    const joiningDate = new Date().toISOString().split("T")[0];
+    
+    let firebaseUid;
+    try {
+      const fbUser = await firebaseAuth.createUser({
+        email,
+        password: password,
+        displayName: name
+      });
+      firebaseUid = fbUser.uid;
+    } catch (err: any) {
+      if (err.code === 'auth/email-already-exists') {
+        res.status(409).json({ message: "An account with this email already exists." });
+        return;
+      }
+      throw err;
+    }
+
+    const now = new Date().toISOString();
+    
+    const userRef = db.collection("users").doc();
+    const userProfile = {
+      id: userRef.id,
+      firebaseUid,
+      firstName,
+      lastName,
       email,
       phone,
-      password, // Temporary store for admin approval
-      emergencyContactName,
-      emergencyContactPhone,
       address,
+      city: "",
+      state: "",
+      pincode: "",
+      role: "RENTER",
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const renterRef = db.collection("renters").doc();
+    const renter = {
+      id: renterRef.id,
+      userId: userRef.id,
       hostelId,
-      roomNumber: room,
+      roomId,
+      guardianName: emergencyContactName,
+      guardianPhone: emergencyContactPhone,
+      joiningDate,
+      monthlyFee,
+      securityDeposit: 0,
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const feeRef = db.collection("fees").doc();
+    const firstFeeMonth = joiningDate.slice(0, 7);
+    const fee = {
+      id: feeRef.id,
+      hostelId,
+      renterId: renterRef.id,
+      month: firstFeeMonth,
+      amount: monthlyFee,
+      paidAmount: 0,
+      dueDate: joiningDate,
+      description: `Monthly fee for ${firstFeeMonth}`,
       status: "PENDING",
-      createdAt: new Date().toISOString()
-    });
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const batch = db.batch();
+    batch.set(userRef, userProfile);
+    batch.set(renterRef, renter);
+    batch.set(feeRef, fee);
+    await batch.commit();
     
     res.status(201).json({ message: "Registration submitted successfully" });
   } catch (err) {
