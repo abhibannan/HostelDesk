@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import type { ReactNode } from "react";
 import {
   signInWithEmailAndPassword,
@@ -15,10 +15,11 @@ import {
   Legend,
 } from "recharts";
 import { auth } from "./firebase.ts";
-import RenterManagement from "./components/RenterManagement";
-import RepairManagement from "./components/RepairManagement";
-import RepairPortal from "./components/RepairPortal";
-import JoinPage from "./components/JoinPage";
+
+const RenterManagement = lazy(() => import("./components/RenterManagement"));
+const RepairManagement = lazy(() => import("./components/RepairManagement"));
+const RepairPortal = lazy(() => import("./components/RepairPortal"));
+const JoinPage = lazy(() => import("./components/JoinPage"));
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://staynexa-1.onrender.com/api/v1";
@@ -125,7 +126,11 @@ function App() {
   // If the user accessed the join page via QR code (using query params avoids GH pages 404)
   const queryParams = new URLSearchParams(window.location.search);
   if (queryParams.get("page") === "join" || window.location.pathname.endsWith("/join")) {
-    return <JoinPage />;
+    return (
+      <Suspense fallback={<div className="loading-screen"><div className="loader"></div></div>}>
+        <JoinPage />
+      </Suspense>
+    );
   }
 
   // Restore authenticated session when page is refreshed or reopened
@@ -1014,9 +1019,11 @@ function App() {
       }
 
       return (
-        <RenterManagement
-          hostelId={selectedHostelId}
-        />
+        <Suspense fallback={<div className="loading-screen"><div className="loader"></div></div>}>
+          <RenterManagement
+            hostelId={selectedHostelId}
+          />
+        </Suspense>
       );
     }
 
@@ -1462,7 +1469,11 @@ function App() {
           </div>
         );
       }
-      return <RepairManagement hostelId={selectedHostelId} />;
+      return (
+        <Suspense fallback={<div className="loading-screen"><div className="loader"></div></div>}>
+          <RepairManagement hostelId={selectedHostelId} />
+        </Suspense>
+      );
     }
 
     return (
@@ -1568,7 +1579,11 @@ function App() {
 
   // Repair technicians go ONLY to their dedicated Repair Portal!
   if (token && authUser?.role === "REPAIR_PERSON") {
-    return <RepairPortal user={authUser} token={token} onLogout={logout} />;
+    return (
+      <Suspense fallback={<div className="loading-screen"><div className="loader"></div></div>}>
+        <RepairPortal user={authUser} token={token} onLogout={logout} />
+      </Suspense>
+    );
   }
 
   return (

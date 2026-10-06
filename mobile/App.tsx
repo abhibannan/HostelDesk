@@ -37,6 +37,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 import * as FileSystem from "expo-file-system";
+import * as ImageManipulator from "expo-image-manipulator";
 
 import { COLORS } from "./src/constants/theme";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
@@ -401,11 +402,14 @@ function AppContent() {
     let base64 = params.proofBase64;
     if (!base64 && params.proofUri) {
       try {
-        base64 = await FileSystem.readAsStringAsync(params.proofUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        const manipResult = await ImageManipulator.manipulateAsync(
+          params.proofUri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        base64 = manipResult.base64;
       } catch (readErr) {
-        console.warn("Could not read image as base64 with FileSystem:", readErr);
+        console.warn("Could not compress and read image as base64:", readErr);
       }
     }
 
